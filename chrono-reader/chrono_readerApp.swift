@@ -2,16 +2,16 @@
 //  chrono_readerApp.swift
 //  chrono-reader
 //
-//  Created by Agustin Monti on 03/03/2025.
+//  Created by Agustin Monti on 02/03/2025.
 //
-
+// App/ChronoReaderApp.swift
+// App/ChronoReaderApp.swift
 import SwiftUI
-
 @main
-struct chrono_readerApp: App {
+struct ChronoReaderApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainTabView()
         }
     }
 }
