@@ -1,8 +1,3 @@
-//
-//  BookModels.swift
-//  chrono-reader
-//
-
 import Foundation
 import SwiftUI
 
@@ -49,19 +44,36 @@ struct Book: Identifiable, Codable {
     ]
 }
 
-struct BookMetadata {
+struct BookMetadata: Codable {
     var localURL: URL?
-    var cover: UIImage?
+    var coverPath: String?
 }
 
-struct CompleteBook: Identifiable {
+struct CompleteBook: Identifiable, Codable, Equatable {
     let id = UUID()
     let book: Book
     let metadata: BookMetadata
 
     init(title: String, author: String, coverImage: String, type: BookType, progress: Double, localURL: URL? = nil, cover: UIImage? = nil) {
         self.book = Book(title: title, author: author, coverImage: coverImage, type: type, progress: progress)
-        self.metadata = BookMetadata(localURL: localURL, cover: cover)
+        
+        if let cover = cover {
+            // Save the image to a local path and store that path
+            let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+            let imagePath = documentsDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+            if let data = cover.jpegData(compressionQuality: 1.0) {
+                try? data.write(to: imagePath)
+                self.metadata = BookMetadata(localURL: localURL, coverPath: imagePath.path)
+            } else {
+                self.metadata = BookMetadata(localURL: localURL, coverPath: nil)
+            }
+        } else {
+            self.metadata = BookMetadata(localURL: localURL, coverPath: nil)
+        }
+    }
+    
+    static func == (lhs: CompleteBook, rhs: CompleteBook) -> Bool {
+        return lhs.id == rhs.id
     }
 }
 

@@ -13,7 +13,9 @@ struct HomeView: View {
     @State private var selectedCategory: BookCategory = .all
     @State private var isImporting: Bool = false
     @State private var newBookURL: URL?
+    @AppStorage("books") private var storedBooksData: Data? // Persistencia con AppStorage
     @State private var books: [CompleteBook] = []  // Estado local para los libros
+    @State private var gridLayout: Int = 0 // 0: Default, 1: List, 2: Large
 
     enum BookCategory: String, CaseIterable, Identifiable {
         case all = "Todos"
@@ -80,8 +82,42 @@ struct HomeView: View {
 
                     // Sección de "Todos los libros"
                     VStack(alignment: .leading, spacing: 16) {
-                        HeaderGradientText(isSearching ? "Resultados de búsqueda" : "Todos los \(selectedCategory == .all ? "títulos" : selectedCategory.rawValue)", fontSize: 20)
-                            .padding(.horizontal, 24)
+                        HStack {
+                            HeaderGradientText(isSearching ? "Resultados de búsqueda" : "Todos los \(selectedCategory == .all ? "títulos" : selectedCategory.rawValue)", fontSize: 20)
+                                .padding(.horizontal, 24)
+
+                            Spacer()
+
+                            // Grid layout adjustment button
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    gridLayout = (gridLayout + 1) % 3
+                                }
+                            }) {
+                                switch gridLayout {
+                                case 0:
+                                    Image(systemName: "square.grid.2x2")
+                                        .font(.title2)
+                                        .foregroundColor(.primary)
+                                        .padding(.trailing, 24)
+                                case 1:
+                                    Image(systemName: "list.bullet")
+                                        .font(.title2)
+                                        .foregroundColor(.primary)
+                                        .padding(.trailing, 24)
+                                case 2:
+                                    Image(systemName: "square.grid.3x3")
+                                        .font(.title2)
+                                        .foregroundColor(.primary)
+                                        .padding(.trailing, 24)
+                                default:
+                                    Image(systemName: "square.grid.2x2")
+                                        .font(.title2)
+                                        .foregroundColor(.primary)
+                                        .padding(.trailing, 24)
+                                }
+                            }
+                        }
 
                         if filteredBooks.isEmpty && !searchText.isEmpty {
                             VStack(spacing: 16) {
@@ -102,7 +138,7 @@ struct HomeView: View {
                             .padding(.top, 40)
                         } else {
                             // Grid con todos los libros filtrados
-                            BookGridView(books: filteredBooks)
+                            BookGridUpdatedView(books: filteredBooks, gridLayout: gridLayout)
                                 .padding(.horizontal, 8)
                         }
                     }
@@ -139,6 +175,7 @@ struct HomeView: View {
                 // Top header (fondo con blur)
                 BlurredHeader()
                     .frame(height: 50)
+
                 VStack(alignment: .leading, spacing: 8) {
                     // Título de la biblioteca
                     HStack {
@@ -189,6 +226,12 @@ struct HomeView: View {
             .background(Color.clear)
             .ignoresSafeArea(edges: .top)
         }
+        .onAppear {
+            loadBooks() // Cargar libros al aparecer la vista
+        }
+        .onChange(of: books) { _ in
+            saveBooks() // Guardar libros cada vez que cambian
+        }
     }
 
     private func processImportedFile(url: URL) {
@@ -200,7 +243,7 @@ struct HomeView: View {
         default:
             // Para otros tipos de archivo, crearemos un nuevo Book con información básica
             let newBook = CompleteBook(title: url.lastPathComponent, author: "Desconocido", coverImage: "", type: getBookType(for: url), progress: 0.0, localURL: url)
-            books.append(newBook)
+            addBook(newBook)
         }
     }
     
@@ -250,7 +293,7 @@ struct HomeView: View {
         
         let newBook = CompleteBook(title: title, author: author, coverImage: "", type: type, progress: 0.0, localURL: url, cover: coverImage)
         
-        books.append(newBook)
+        addBook(newBook)
     }
 
     private func getBookType(for url: URL) -> BookType {
@@ -267,6 +310,29 @@ struct HomeView: View {
         default:
             return .epub // Tipo por defecto
         }
+    }
+
+    // Métodos para guardar y cargar los libros
+    private func saveBooks() {
+        if let encoded = try? JSONEncoder().encode(books) {
+            storedBooksData = encoded
+        }
+    }
+
+    private func loadBooks() {
+        if let storedBooksData = storedBooksData,
+           let decoded = try? JSONDecoder().decode([CompleteBook].self, from: storedBooksData) {
+            books = decoded
+        } else {
+            // Si no hay libros guardados, cargar los libros de muestra
+            books = Book.samples.map { book in
+                CompleteBook(title: book.title, author: book.author, coverImage: book.coverImage, type: book.type, progress: book.progress)
+            }
+        }
+    }
+
+    private func addBook(_ book: CompleteBook) {
+        books.append(book)
     }
 }
 

@@ -7,12 +7,13 @@ import Combine
 
 struct BookItemView: View {
     let book: CompleteBook
-    
+
     var body: some View {
         VStack {
             ZStack {
                 // Portada del libro
-                if let coverImage = book.metadata.cover {
+                if let coverPath = book.metadata.coverPath,
+                   let coverImage = UIImage(contentsOfFile: coverPath) {
                     Image(uiImage: coverImage)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
@@ -92,7 +93,7 @@ struct BookItemView: View {
 
 struct ProgressBar: View {
     var value: Double
-    
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
@@ -100,7 +101,7 @@ struct ProgressBar: View {
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .opacity(0.3)
                     .foregroundColor(.gray)
-                
+
                 Rectangle()
                     .frame(width: min(CGFloat(self.value) * geometry.size.width, geometry.size.width), height: geometry.size.height)
                     .foregroundColor(.blue)
