@@ -1,11 +1,18 @@
+//
+//  HomeView.swift
+//  chrono-reader
+//
+
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct HomeView: View {
     @State private var searchText = ""
     @State private var isSearching = false
     @State private var selectedCategory: BookCategory = .all
-
-    let books = Book.samples
+    @State private var isImporting: Bool = false
+    @State private var newBookURL: URL?
+    @State private var books: [Book] = Book.samples  // Estado local para los libros
 
     enum BookCategory: String, CaseIterable, Identifiable {
         case all = "Todos"
@@ -103,25 +110,60 @@ struct HomeView: View {
                 }
             }
             .coordinateSpace(name: "scroll")
+            .onChange(of: newBookURL) { url in
+                if let url = url {
+                    // Procesar el nuevo archivo seleccionado y agregarlo a la lista de libros
+                    processImportedFile(url: url)
+                    newBookURL = nil // Resetear la URL después de procesar
+                }
+            }
+            .fileImporter(
+                isPresented: $isImporting,
+                allowedContentTypes: [UTType.pdf, UTType.epub, UTType.init(filenameExtension: "cbr")!, UTType.init(filenameExtension: "cbz")!],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    // Tomar la primera URL seleccionada
+                    if let url = urls.first {
+                        newBookURL = url
+                    }
+                case .failure(let error):
+                    print(error)
+                }
+            }
 
             // Header fijo
             VStack(spacing: 0) {
                 // Top header (fondo con blur)
                 BlurredHeader()
-                    .frame(height: 50) // Reducimos el tamaño del BlurredHeader
-
-                // Contenedor del título y la barra de búsqueda
+                    .frame(height: 50)
                 VStack(alignment: .leading, spacing: 8) {
                     // Título de la biblioteca
-                    Text("Biblioteca")
-                        .font(.system(size: 25, weight: .bold))
-                        .padding(.horizontal, 24)
-                        .padding(.top, 8)
+                    HStack {
+                        Text("Biblioteca")
+                            .font(.system(size: 25, weight: .bold))
+                            .padding(.horizontal, 24)
+                            .padding(.top, 8)
+
+                        Spacer()
+
+                        // Botón de importación
+                        Button(action: {
+                            isImporting = true
+                        }) {
+                            Image(systemName: "plus")
+                                .font(.title2)
+                                .foregroundColor(.primary)
+                                .padding(.trailing, 24)
+                                .padding(.top, 8)
+                        }
+                    }
 
                     // Barra de búsqueda
                     SearchBarView(text: $searchText, isSearching: $isSearching)
-                        .padding(.horizontal, 16) // Reducimos el padding horizontal
-                        .padding(.bottom, 4) // Reducimos el padding bottom
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 4)
 
                     // Selector de categorías (oculto durante la búsqueda)
                     if !isSearching {
@@ -138,18 +180,50 @@ struct HomeView: View {
                             .padding(.horizontal, 24)
                         }
                         .padding(.vertical, 8)
-                        .padding(.bottom, 8) // Agregamos un padding inferior adicional
+                        .padding(.bottom, 8)
                     }
                 }
-                .background(Material.ultraThinMaterial) // Aplicar blur
+                .background(Material.ultraThinMaterial)
             }
-            .background(Color.clear) // Asegurarse de que el fondo sea transparente
-            .ignoresSafeArea(edges: .top) // Ignorar el área segura superior para que llegue al tope
+            .background(Color.clear)
+            .ignoresSafeArea(edges: .top)
+        }
+    }
+
+    private func processImportedFile(url: URL) {
+        // Aquí se implementa la lógica para extraer metadatos del archivo
+        // y crear una nueva instancia de Book.
+        
+        // Para simplificar, crearemos un nuevo Book con información básica
+        let newBook = Book(
+            title: url.lastPathComponent,  // Usamos el nombre del archivo como título
+            author: "Desconocido",         // Autor desconocido por defecto
+            coverImage: "",                // Dejamos la portada vacía por ahora
+            type: getBookType(for: url),   // Determinamos el tipo de archivo
+            progress: 0.0                  // Progreso inicial en 0
+        )
+
+        // Agregamos el nuevo libro a la lista
+        books.append(newBook)
+    }
+
+    private func getBookType(for url: URL) -> BookType {
+        let fileExtension = url.pathExtension.lowercased()
+        switch fileExtension {
+        case "epub":
+            return .epub
+        case "pdf":
+            return .pdf
+        case "cbr":
+            return .cbr
+        case "cbz":
+            return .cbz
+        default:
+            return .epub // Tipo por defecto
         }
     }
 }
 
-// Componente de barra de búsqueda personalizada
 struct SearchBarView: View {
     @Binding var text: String
     @Binding var isSearching: Bool
@@ -163,8 +237,8 @@ struct SearchBarView: View {
                     .padding(.leading, 8)
 
                 TextField("Buscar libros o cómics...", text: $text)
-                    .padding(.vertical, 8) // Reducimos el padding vertical
-                    .font(.system(size: 14)) // Reducimos el tamaño de la fuente
+                    .padding(.vertical, 8)
+                    .font(.system(size: 14))
                     .focused($isFocused)
                     .onChange(of: isFocused) { newValue in
                         isSearching = newValue || !text.isEmpty
@@ -184,10 +258,10 @@ struct SearchBarView: View {
                 }
             }
             .background(Color(.systemGray6))
-            .cornerRadius(8) // Reducimos el radio del corner
+            .cornerRadius(8)
             .overlay(
-                RoundedRectangle(cornerRadius: 8) // Reducimos el radio del corner
-                    .stroke(Color.gray.opacity(0.3), lineWidth: 0.5) // Reducimos el grosor de la línea
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 0.5)
             )
 
             if isSearching && isFocused {
@@ -201,11 +275,11 @@ struct SearchBarView: View {
                 .animation(.default, value: isSearching)
             }
         }
-        .frame(height: 36) // Establecemos una altura fija más pequeña
+        .frame(height: 36)
     }
 }
 
-// Vista auxiliar para los botones de categoría
+// Helper view for category buttons
 struct CategoryButton: View {
     let category: HomeView.BookCategory
     let isSelected: Bool

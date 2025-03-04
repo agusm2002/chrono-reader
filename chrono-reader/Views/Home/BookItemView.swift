@@ -1,3 +1,8 @@
+//
+//  BookItemView.swift
+//  chrono-reader
+//
+
 import SwiftUI
 import Combine
 
@@ -5,7 +10,7 @@ struct BookItemView: View {
     let book: Book
     @State private var coverImage: UIImage?
     @State private var isLoading = false
-    
+
     var body: some View {
         VStack {
             ZStack {
@@ -31,7 +36,7 @@ struct BookItemView: View {
                                 .foregroundColor(.gray)
                         )
                 }
-                
+
                 // Indicador de progreso
                 VStack {
                     Spacer()
@@ -39,18 +44,18 @@ struct BookItemView: View {
                         .frame(height: 4)
                 }
             }
-            
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(book.title)
                     .font(.subheadline)
                     .fontWeight(.medium)
                     .lineLimit(1)
-                
+
                 Text(book.author)
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
-                
+
                 // Badges para el tipo y número de volumen/edición
                 HStack {
                     Text(book.type.rawValue.uppercased())
@@ -61,7 +66,7 @@ struct BookItemView: View {
                         .background(badgeColor(for: book.type))
                         .foregroundColor(.white)
                         .cornerRadius(4)
-                    
+
                     if let issueNumber = book.issueNumber {
                         Text("#\(issueNumber)")
                             .font(.caption2)
@@ -71,33 +76,33 @@ struct BookItemView: View {
                             .background(Color.gray.opacity(0.2))
                             .cornerRadius(4)
                     }
-                    
+
                     Spacer()
                 }
             }
             .padding(.top, 8)
         }
         .onAppear {
-            loadCoverImage()
+           // loadCoverImage() // Eliminar esto, las imágenes se gestionan localmente
         }
     }
-    
-    private func loadCoverImage() {
-        guard let coverURL = book.coverURL else { return }
-        
-        isLoading = true
-        
-        URLSession.shared.dataTask(with: coverURL) { data, response, error in
-            isLoading = false
-            
-            if let data = data, let image = UIImage(data: data) {
-                DispatchQueue.main.async {
-                    self.coverImage = image
-                }
-            }
-        }.resume()
-    }
-    
+
+//    private func loadCoverImage() {  // Eliminar esto, las imágenes se gestionan localmente
+//        guard let coverURL = book.coverURL else { return }
+//
+//        isLoading = true
+//
+//        URLSession.shared.dataTask(with: coverURL) { data, response, error in
+//            isLoading = false
+//
+//            if let data = data, let image = UIImage(data: data) {
+//                DispatchQueue.main.async {
+//                    self.coverImage = image
+//                }
+//            }
+//        }.resume()
+//    }
+
     private func badgeColor(for type: BookType) -> Color {
         switch type {
         case .epub:

@@ -1,10 +1,3 @@
-//
-//  BookModels.swift
-//  chrono-reader
-//
-//  Created by Agustin Monti on 02/03/2025.
-//
-
 import Foundation
 import SwiftUI
 
@@ -22,7 +15,7 @@ struct Book: Identifiable, Codable {
     var coverImage: String
     let type: BookType
     var progress: Double // 0.0 to 1.0
-    
+
     // Metadata
     var isbn: String?
     var publishDate: String?
@@ -32,12 +25,12 @@ struct Book: Identifiable, Codable {
     var series: String?
     var volume: String?
     var issueNumber: Int?
-    
+
     // Para cargar la imagen desde una URL
     var coverURL: URL? {
         return URL(string: coverImage)
     }
-    
+
     // Sample data for preview
     static let samples = [
         Book(title: "The Great Gatsby", author: "F. Scott Fitzgerald", coverImage: "book1", type: .epub, progress: 0.75),
@@ -66,7 +59,7 @@ struct ShortBoxedComic: Codable {
     let description: String?
     let series: String?
     let volume: String?
-    
+
     enum CodingKeys: String, CodingKey {
         case title, publisher, description, series, volume
         case issueNumber = "issue_number"
