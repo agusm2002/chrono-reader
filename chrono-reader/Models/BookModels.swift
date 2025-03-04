@@ -1,3 +1,8 @@
+//
+//  BookModels.swift
+//  chrono-reader
+//
+
 import Foundation
 import SwiftUI
 
@@ -42,6 +47,22 @@ struct Book: Identifiable, Codable {
         Book(title: "To Kill a Mockingbird", author: "Harper Lee", coverImage: "book4", type: .epub, progress: 0.0),
         Book(title: "Superman: Man of Steel", author: "DC Comics", coverImage: "comic4", type: .cbr, progress: 0.6)
     ]
+}
+
+struct BookMetadata {
+    var localURL: URL?
+    var cover: UIImage?
+}
+
+struct CompleteBook: Identifiable {
+    let id = UUID()
+    let book: Book
+    let metadata: BookMetadata
+
+    init(title: String, author: String, coverImage: String, type: BookType, progress: Double, localURL: URL? = nil, cover: UIImage? = nil) {
+        self.book = Book(title: title, author: author, coverImage: coverImage, type: type, progress: progress)
+        self.metadata = BookMetadata(localURL: localURL, cover: cover)
+    }
 }
 
 // API Models for ShortBoxed (Comics)

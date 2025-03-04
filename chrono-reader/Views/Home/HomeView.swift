@@ -1,10 +1,11 @@
 //
 //  HomeView.swift
-//  chrono-reader
 //
 
 import SwiftUI
 import UniformTypeIdentifiers
+import ZIPFoundation
+import XMLCoder
 
 struct HomeView: View {
     @State private var searchText = ""
@@ -12,7 +13,7 @@ struct HomeView: View {
     @State private var selectedCategory: BookCategory = .all
     @State private var isImporting: Bool = false
     @State private var newBookURL: URL?
-    @State private var books: [Book] = Book.samples  // Estado local para los libros
+    @State private var books: [CompleteBook] = []  // Estado local para los libros
 
     enum BookCategory: String, CaseIterable, Identifiable {
         case all = "Todos"
@@ -23,28 +24,28 @@ struct HomeView: View {
         var id: String { self.rawValue }
     }
 
-    var filteredBooks: [Book] {
+    var filteredBooks: [CompleteBook] {
         var filtered = books
 
         if !searchText.isEmpty {
-            filtered = filtered.filter { $0.title.lowercased().contains(searchText.lowercased()) ||
-                                             $0.author.lowercased().contains(searchText.lowercased()) }
+            filtered = filtered.filter { $0.book.title.lowercased().contains(searchText.lowercased()) ||
+                                             $0.book.author.lowercased().contains(searchText.lowercased()) }
         }
 
         switch selectedCategory {
         case .all:
             return filtered
         case .books:
-            return filtered.filter { $0.type == .epub || $0.type == .pdf }
+            return filtered.filter { $0.book.type == .epub || $0.book.type == .pdf }
         case .comics:
-            return filtered.filter { $0.type == .cbr || $0.type == .cbz }
+            return filtered.filter { $0.book.type == .cbr || $0.book.type == .cbz }
         case .recent:
-            return filtered.filter { $0.progress > 0 }.sorted(by: { $0.progress > $1.progress })
+            return filtered.filter { $0.book.progress > 0 }.sorted(by: { $0.book.progress > $1.book.progress })
         }
     }
 
-    var booksInProgress: [Book] {
-        return filteredBooks.filter { $0.progress > 0 }.sorted(by: { $0.progress > $1.progress })
+    var booksInProgress: [CompleteBook] {
+        return filteredBooks.filter { $0.book.progress > 0 }.sorted(by: { $0.book.progress > $1.book.progress })
     }
 
     var body: some View {
@@ -191,19 +192,64 @@ struct HomeView: View {
     }
 
     private func processImportedFile(url: URL) {
-        // Aquí se implementa la lógica para extraer metadatos del archivo
-        // y crear una nueva instancia de Book.
-        
-        // Para simplificar, crearemos un nuevo Book con información básica
-        let newBook = Book(
-            title: url.lastPathComponent,  // Usamos el nombre del archivo como título
-            author: "Desconocido",         // Autor desconocido por defecto
-            coverImage: "",                // Dejamos la portada vacía por ahora
-            type: getBookType(for: url),   // Determinamos el tipo de archivo
-            progress: 0.0                  // Progreso inicial en 0
-        )
+        // 1. Determinar el tipo de archivo
+        let fileExtension = url.pathExtension.lowercased()
+        switch fileExtension {
+        case "cbz", "cbr":
+            processComicBookFile(url: url, type: (fileExtension == "cbz" ? .cbz : .cbr))
+        default:
+            // Para otros tipos de archivo, crearemos un nuevo Book con información básica
+            let newBook = CompleteBook(title: url.lastPathComponent, author: "Desconocido", coverImage: "", type: getBookType(for: url), progress: 0.0, localURL: url)
+            books.append(newBook)
+        }
+    }
+    
+    private func processComicBookFile(url: URL, type: BookType) {
+        guard let archive = Archive(url: url, accessMode: .read) else {
+            print("Error: No se pudo abrir el archivo CBZ/CBR")
+            return
+        }
 
-        // Agregamos el nuevo libro a la lista
+        var coverImage: UIImage?
+        var author: String = "Desconocido"
+        var title: String = url.lastPathComponent // Default title
+
+        // Buscar ComicInfo.xml y extraer metadatos
+        for entry in archive {
+            if entry.path.lowercased() == "comicinfo.xml" {
+                do {
+                    var data = Data()
+                    try archive.extract(entry) { data.append($0) }
+                    
+                    if let comicInfo = try? ComicInfo(xmlData: data) {
+                        author = comicInfo.writer ?? author
+                        title = comicInfo.title ?? title
+                    }
+                } catch {
+                    print("Error al extraer ComicInfo.xml: \(error)")
+                }
+                break
+            }
+        }
+
+        // Buscar la primera imagen (JPG o PNG) para usar como portada
+        for entry in archive {
+            if entry.path.lowercased().hasSuffix(".jpg") || entry.path.lowercased().hasSuffix(".png") {
+                do {
+                    var data = Data()
+                    try archive.extract(entry) { data.append($0) }
+                    coverImage = UIImage(data: data)
+                    
+                    // Found cover, break the loop
+                    break
+                } catch {
+                    print("Error al extraer la imagen de portada: \(error)")
+                }
+            }
+        }
+        
+        let newBook = CompleteBook(title: title, author: author, coverImage: "", type: type, progress: 0.0, localURL: url, cover: coverImage)
+        
         books.append(newBook)
     }
 
@@ -312,5 +358,53 @@ struct CategoryButton: View {
                 )
                 .foregroundColor(isSelected ? .white : .primary)
         }
+    }
+}
+
+// Helper struct to decode ComicInfo.xml
+struct ComicInfo: Decodable {
+    let title: String?
+    let series: String?
+    let number: String?
+    let volume: String?
+    let writer: String?
+    let penciller: String?
+    let inker: String?
+    let colorist: String?
+    let letterer: String?
+    let editor: String?
+    let publisher: String?
+    let genre: String?
+    let web: String?
+    let summary: String?
+    let notes: String?
+    let year: String?
+    let month: String?
+    let day: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title = "Title"
+        case series = "Series"
+        case number = "Number"
+        case volume = "Volume"
+        case writer = "Writer"
+        case penciller = "Penciller"
+        case inker = "Inker"
+        case colorist = "Colorist"
+        case letterer = "Letterer"
+        case editor = "Editor"
+        case publisher = "Publisher"
+        case genre = "Genre"
+        case web = "Web"
+        case summary = "Summary"
+        case notes = "Notes"
+        case year = "Year"
+        case month = "Month"
+        case day = "Day"
+    }
+    
+    init(xmlData: Data) throws {
+        let decoder = XMLDecoder()
+        self = try decoder.decode(ComicInfo.self, from: xmlData)
     }
 }

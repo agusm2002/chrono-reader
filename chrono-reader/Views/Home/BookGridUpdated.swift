@@ -1,15 +1,13 @@
 //
-//  BookGridViewUpdated.swift
+//  BookGridUpdated.swift
 //  chrono-reader
-//
-//  Created by Agustin Monti on 02/03/2025.
 //
 
 import SwiftUI
 import Combine
 
 struct BookGridViewUpdated: View {
-    @State private var books: [Book] = []
+    @State private var books: [CompleteBook] = [] // Cambiado a [CompleteBook]
     @State private var searchQuery = ""
     @State private var isLoading = false
     @State private var cancellables = Set<AnyCancellable>()
@@ -50,13 +48,13 @@ struct BookGridViewUpdated: View {
         }
         .onAppear {
             // Cargar muestra inicial
-            books = Book.samples
+            loadInitialSamples()
         }
     }
     
     private func searchContent() {
         guard !searchQuery.isEmpty else {
-            books = Book.samples
+            loadInitialSamples()
             return
         }
         
@@ -77,8 +75,16 @@ struct BookGridViewUpdated: View {
                 }
             }, receiveValue: { results in
                 // Combinar y aplanar los resultados
-                books = results.flatMap { $0 }
+                books = results.flatMap { $0 }.map { book in
+                    CompleteBook(title: book.title, author: book.author, coverImage: book.coverImage, type: book.type, progress: book.progress)
+                }
             })
             .store(in: &cancellables)
+    }
+    
+    private func loadInitialSamples() {
+        books = Book.samples.map { book in
+            CompleteBook(title: book.title, author: book.author, coverImage: book.coverImage, type: book.type, progress: book.progress)
+        }
     }
 }
