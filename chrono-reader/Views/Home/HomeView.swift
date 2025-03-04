@@ -4,27 +4,26 @@ struct HomeView: View {
     @State private var searchText = ""
     @State private var isSearching = false
     @State private var selectedCategory: BookCategory = .all
-    @State private var scrollOffset: CGFloat = 0
-    
+
     let books = Book.samples
-    
+
     enum BookCategory: String, CaseIterable, Identifiable {
         case all = "Todos"
         case books = "Libros"
         case comics = "Comics"
         case recent = "Recientes"
-        
+
         var id: String { self.rawValue }
     }
-    
+
     var filteredBooks: [Book] {
         var filtered = books
-        
+
         if !searchText.isEmpty {
             filtered = filtered.filter { $0.title.lowercased().contains(searchText.lowercased()) ||
-                                         $0.author.lowercased().contains(searchText.lowercased()) }
+                                             $0.author.lowercased().contains(searchText.lowercased()) }
         }
-        
+
         switch selectedCategory {
         case .all:
             return filtered
@@ -36,27 +35,27 @@ struct HomeView: View {
             return filtered.filter { $0.progress > 0 }.sorted(by: { $0.progress > $1.progress })
         }
     }
-    
+
     var booksInProgress: [Book] {
         return filteredBooks.filter { $0.progress > 0 }.sorted(by: { $0.progress > $1.progress })
     }
-    
+
     var body: some View {
         ZStack(alignment: .top) {
             // Content
             ScrollView {
-                // Transparent spacer to push content below the fixed header
-                Color.clear.frame(height: 140)
-                
-                // Main content
+                // Spacer transparente para empujar el contenido debajo del header fijo
+                Color.clear.frame(height: isSearching ? 110 : 150) // Ajuste dinámico del height
+
+                // Contenido principal
                 VStack(alignment: .leading, spacing: 24) {
-                    // Continue reading section (if there are books in progress)
+                    // Sección de "Continuar leyendo" (si hay libros en progreso)
                     if !isSearching {
                         if !booksInProgress.isEmpty {
                             VStack(alignment: .leading, spacing: 16) {
                                 HeaderGradientText("Continuar leyendo", fontSize: 20)
-                                    .padding(.horizontal, 24) // Increased padding
-                                
+                                    .padding(.horizontal, 24)
+
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack(spacing: 16) {
                                         ForEach(booksInProgress) { book in
@@ -64,33 +63,28 @@ struct HomeView: View {
                                                 .frame(width: 150)
                                         }
                                     }
-                                    .padding(.horizontal, 24) // Increased padding
+                                    .padding(.horizontal, 24)
                                 }
                             }
                             .padding(.bottom)
                         }
                     }
-                    
-                    // All books section
+
+                    // Sección de "Todos los libros"
                     VStack(alignment: .leading, spacing: 16) {
-                        if isSearching {
-                            HeaderGradientText("Resultados de búsqueda", fontSize: 20)
-                                .padding(.horizontal, 24)
-                        } else {
-                            HeaderGradientText("Todos los \(selectedCategory == .all ? "títulos" : selectedCategory.rawValue)", fontSize: 20)
-                                .padding(.horizontal, 24)
-                        }
-                        
+                        HeaderGradientText(isSearching ? "Resultados de búsqueda" : "Todos los \(selectedCategory == .all ? "títulos" : selectedCategory.rawValue)", fontSize: 20)
+                            .padding(.horizontal, 24)
+
                         if filteredBooks.isEmpty && !searchText.isEmpty {
                             VStack(spacing: 16) {
                                 Image(systemName: "magnifyingglass")
                                     .font(.system(size: 40))
                                     .foregroundColor(.gray)
-                                
+
                                 Text("No se encontraron resultados para \"\(searchText)\"")
                                     .font(.headline)
                                     .multilineTextAlignment(.center)
-                                
+
                                 Text("Intenta con otros términos de búsqueda")
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
@@ -99,41 +93,37 @@ struct HomeView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.top, 40)
                         } else {
-                            // Grid with all filtered books - Changed to the BookGridView component
+                            // Grid con todos los libros filtrados
                             BookGridView(books: filteredBooks)
-                                .padding(.horizontal, 8) // Added extra padding to center grid items
+                                .padding(.horizontal, 8)
                         }
                     }
-                    
-                    Spacer(minLength: 100) // Space for the tab bar
+
+                    Spacer(minLength: 100) // Espacio para la barra de navegación
                 }
             }
             .coordinateSpace(name: "scroll")
-            
-            // Fixed header elements
+
+            // Header fijo
             VStack(spacing: 0) {
-                // Top header (removed Chrono Reader text and rectangle)
-                ZStack {
-                    // Blurred header background
-                    BlurredHeader()
-                        .frame(height: 60)
-                }
-                .frame(height: 60)
-                
-                // Fixed category selector and Library title area
+                // Top header (fondo con blur)
+                BlurredHeader()
+                    .frame(height: 50) // Reducimos el tamaño del BlurredHeader
+
+                // Contenedor del título y la barra de búsqueda
                 VStack(alignment: .leading, spacing: 8) {
-                    // Library title
+                    // Título de la biblioteca
                     Text("Biblioteca")
                         .font(.system(size: 25, weight: .bold))
-                        .padding(.horizontal, 24) // Increased padding
-                        .padding(.top, 8)
-                    
-                    // Search bar
-                    SearchBarView(text: $searchText, isSearching: $isSearching)
                         .padding(.horizontal, 24)
-                        .padding(.vertical, 8)
-                    
-                    // Category selector (hidden when searching)
+                        .padding(.top, 8)
+
+                    // Barra de búsqueda
+                    SearchBarView(text: $searchText, isSearching: $isSearching)
+                        .padding(.horizontal, 16) // Reducimos el padding horizontal
+                        .padding(.bottom, 4) // Reducimos el padding bottom
+
+                    // Selector de categorías (oculto durante la búsqueda)
                     if !isSearching {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 16) {
@@ -145,35 +135,36 @@ struct HomeView: View {
                                     )
                                 }
                             }
-                            .padding(.horizontal, 24) // Increased padding
+                            .padding(.horizontal, 24)
                         }
                         .padding(.vertical, 8)
+                        .padding(.bottom, 8) // Agregamos un padding inferior adicional
                     }
                 }
-                .background(Material.ultraThinMaterial) // Apply blur effect to this VStack
-                .frame(height: isSearching ? 120 : 160)
+                .background(Material.ultraThinMaterial) // Aplicar blur
             }
-            .background(Color.clear) // Make sure the overall background is clear
-            .ignoresSafeArea(edges: .top)
+            .background(Color.clear) // Asegurarse de que el fondo sea transparente
+            .ignoresSafeArea(edges: .top) // Ignorar el área segura superior para que llegue al tope
         }
     }
 }
 
-// Custom Search Bar Component
+// Componente de barra de búsqueda personalizada
 struct SearchBarView: View {
     @Binding var text: String
     @Binding var isSearching: Bool
     @FocusState private var isFocused: Bool
-    
+
     var body: some View {
         HStack {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.gray)
                     .padding(.leading, 8)
-                
+
                 TextField("Buscar libros o cómics...", text: $text)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, 8) // Reducimos el padding vertical
+                    .font(.system(size: 14)) // Reducimos el tamaño de la fuente
                     .focused($isFocused)
                     .onChange(of: isFocused) { newValue in
                         isSearching = newValue || !text.isEmpty
@@ -181,7 +172,7 @@ struct SearchBarView: View {
                     .onChange(of: text) { newValue in
                         isSearching = isFocused || !newValue.isEmpty
                     }
-                
+
                 if !text.isEmpty {
                     Button(action: {
                         text = ""
@@ -193,12 +184,12 @@ struct SearchBarView: View {
                 }
             }
             .background(Color(.systemGray6))
-            .cornerRadius(10)
+            .cornerRadius(8) // Reducimos el radio del corner
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 8) // Reducimos el radio del corner
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 0.5) // Reducimos el grosor de la línea
             )
-            
+
             if isSearching && isFocused {
                 Button("Cancelar") {
                     text = ""
@@ -210,15 +201,16 @@ struct SearchBarView: View {
                 .animation(.default, value: isSearching)
             }
         }
+        .frame(height: 36) // Establecemos una altura fija más pequeña
     }
 }
 
-// Helper view for category buttons
+// Vista auxiliar para los botones de categoría
 struct CategoryButton: View {
     let category: HomeView.BookCategory
     let isSelected: Bool
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             Text(category.rawValue)

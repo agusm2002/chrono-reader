@@ -1,6 +1,8 @@
 import SwiftUI
+
 struct CustomTabBar: View {
     @Binding var selectedTab: Tab
+
     var body: some View {
         HStack {
             Spacer()
@@ -18,21 +20,23 @@ struct CustomTabBar: View {
         )
     }
 }
+
 struct TabBarButton: View {
     let tab: Tab
     @Binding var selectedTab: Tab
     let imageName: String
     let text: String
+
     var body: some View {
         VStack(spacing: 4) {
             Image(systemName: imageName)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 24, height: 24)
-                .foregroundColor(selectedTab == tab ? .purple : .gray) // Cambié los colores para mejor contraste
+                .frame(width: 26, height: 26) // Aumenté el tamaño de los iconos
+                .foregroundColor(selectedTab == tab ? .purple : .gray)
             Text(text)
-                .font(.system(size: 10))
-                .foregroundColor(selectedTab == tab ? .purple : .gray) // Cambié los colores para mejor contraste
+                .font(.system(size: 12)) // Aumenté el tamaño del texto
+                .foregroundColor(selectedTab == tab ? .purple : .gray)
         }
         .frame(height: 44)
         .onTapGesture {
