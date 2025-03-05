@@ -47,6 +47,11 @@ struct Book: Identifiable, Codable {
 struct BookMetadata: Codable {
     var localURL: URL?
     var coverPath: String?
+
+    init(localURL: URL? = nil, coverPath: String? = nil) {
+        self.localURL = localURL
+        self.coverPath = coverPath
+    }
 }
 
 struct CompleteBook: Identifiable, Codable, Equatable {

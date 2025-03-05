@@ -1,112 +1,157 @@
-//
-//  BookItemView.swift
-//
-
 import SwiftUI
 import Combine
 
 struct BookItemView: View {
     let book: CompleteBook
-
+    var displayMode: DisplayMode = .grid
+    
+    enum DisplayMode {
+        case grid, list, large
+    }
+    
     var body: some View {
-        VStack {
-            ZStack {
-                // Portada del libro
-                if let coverPath = book.metadata.coverPath,
-                   let coverImage = UIImage(contentsOfFile: coverPath) {
-                    Image(uiImage: coverImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(height: 180)
-                        .cornerRadius(8)
-                } else {
-                    // Imagen de placeholder
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
-                        .frame(height: 180)
-                        .cornerRadius(8)
-                        .overlay(
-                            Image(systemName: "book.closed")
-                                .font(.largeTitle)
-                                .foregroundColor(.gray)
-                        )
-                }
-
-                // Indicador de progreso
-                VStack {
-                    Spacer()
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .bottom) {
+                // Container principal
+                bookCover
+                    .overlay(gradientOverlay)
+                    .overlay(progressPercentageOverlay, alignment: .bottomTrailing)
+                    .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+                
+                // Barra de progreso principal
+                if displayMode != .list {
                     ProgressBar(value: book.book.progress)
-                        .frame(height: 4)
+                        .frame(height: 3)
+                        .padding(.horizontal, 4)
+                        .padding(.bottom, 1) // Aumenté el padding aquí
                 }
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(book.book.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
-
-                Text(book.book.author)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-
-                // Badges para el tipo y número de volumen/edición
-                HStack {
-                    Text(book.book.type.rawValue.uppercased())
-                        .font(.caption2)
-                        .fontWeight(.bold)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(badgeColor(for: book.book.type))
-                        .foregroundColor(.white)
-                        .cornerRadius(4)
-
-                    if let issueNumber = book.book.issueNumber {
-                        Text("#\(issueNumber)")
-                            .font(.caption2)
-                            .fontWeight(.bold)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.gray.opacity(0.2))
-                            .cornerRadius(4)
-                    }
-
-                    Spacer()
+            .aspectRatio(0.68, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(Color.black.opacity(0.1), lineWidth: 0.5)
+            )
+            
+            if displayMode != .large {
+                bookInfo
+            }
+        }
+        .padding(.vertical, 4)
+    }
+    
+    private var bookCover: some View {
+        Group {
+            if let coverPath = book.metadata.coverPath,
+               let coverImage = UIImage(contentsOfFile: coverPath) {
+                Image(uiImage: coverImage)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Color(.systemGray5)
+                    Image(systemName: "book.closed")
+                        .font(.title)
+                        .foregroundColor(.gray)
                 }
             }
-            .padding(.top, 8)
         }
     }
-
-    private func badgeColor(for type: BookType) -> Color {
-        switch type {
-        case .epub:
-            return .blue
-        case .pdf:
-            return .red
-        case .cbr, .cbz:
-            return .purple
+    
+    private var gradientOverlay: some View {
+        LinearGradient(
+            gradient: Gradient(colors: [
+                .clear,
+                .clear,
+                .black.opacity(0.15),
+                .black.opacity(0.3)
+            ]),
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+    
+    private var progressPercentageOverlay: some View {
+        Group {
+            if book.book.progress > 0 && displayMode != .list {
+                Text("\(Int(book.book.progress * 100))%")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.black.opacity(0.6))
+                    .cornerRadius(4)
+                    .padding([.horizontal, .bottom], 8) // Aumenté el padding inferior
+                    .padding(.top, 6) // Reduje el padding superior
+            }
+        }
+    }
+    
+    private var bookInfo: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(book.book.title)
+                .font(.system(size: displayMode == .large ? 15 : 13, weight: .medium))
+                .lineLimit(displayMode == .large ? 2 : 1)
+                .foregroundColor(.primary)
+            
+            Text(book.book.author)
+                .font(.system(size: displayMode == .large ? 13 : 11))
+                .lineLimit(1)
+                .foregroundColor(.secondary)
+            
+            HStack(spacing: 4) {
+                typeBadge
+                
+                if let issue = book.book.issueNumber {
+                    Text("#\(issue)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.gray.opacity(0.15))
+                        .cornerRadius(4)
+                }
+            }
+        }
+    }
+    
+    private var typeBadge: some View {
+        Text(book.book.type.rawValue.uppercased())
+            .font(.system(size: 9, weight: .bold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(badgeColor)
+            .foregroundColor(.white)
+            .cornerRadius(4)
+    }
+    
+    private var badgeColor: Color {
+        switch book.book.type {
+        case .epub: return .blue
+        case .pdf: return .red
+        case .cbr, .cbz: return .purple
         }
     }
 }
 
 struct ProgressBar: View {
     var value: Double
-
+    var height: CGFloat = 4
+    
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
                 Rectangle()
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                    .opacity(0.3)
-                    .foregroundColor(.gray)
-
+                    .frame(width: geometry.size.width)
+                    .opacity(0.15)
+                    .foregroundColor(.primary)
+                
                 Rectangle()
-                    .frame(width: min(CGFloat(self.value) * geometry.size.width, geometry.size.width), height: geometry.size.height)
+                    .frame(width: min(CGFloat(value) * geometry.size.width, geometry.size.width))
                     .foregroundColor(.blue)
+                    .animation(.easeInOut, value: value)
             }
-            .cornerRadius(45)
         }
+        .frame(height: height)
+        .cornerRadius(height/2)
     }
 }
