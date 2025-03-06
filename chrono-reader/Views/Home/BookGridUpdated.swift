@@ -3,6 +3,7 @@ import SwiftUI
 struct BookGridUpdatedView: View {
     let books: [CompleteBook]
     var gridLayout: Int
+    var onDelete: ((CompleteBook) -> Void)? // Closure opcional para eliminar
     
     var body: some View {
         Group {
@@ -20,7 +21,9 @@ struct BookGridUpdatedView: View {
         
         return LazyVGrid(columns: columns, spacing: 24) {
             ForEach(books) { book in
-                BookItemView(book: book, displayMode: .grid)
+                BookItemView(book: book, displayMode: .grid, onDelete: {
+                    onDelete?(book)
+                })
             }
         }
         .padding(.horizontal, 20)
@@ -31,8 +34,10 @@ struct BookGridUpdatedView: View {
             LazyVStack(spacing: 16) {
                 ForEach(books) { book in
                     HStack(spacing: 12) {
-                        BookItemView(book: book, displayMode: .list)
-                            .frame(width: 80)
+                        BookItemView(book: book, displayMode: .list, onDelete: {
+                            onDelete?(book)
+                        })
+                        .frame(width: 80)
                         
                         VStack(alignment: .leading, spacing: 6) {
                             Text(book.book.title)
@@ -77,7 +82,9 @@ struct BookGridUpdatedView: View {
         return LazyVGrid(columns: columns, spacing: 24) {
             ForEach(books) { book in
                 VStack(alignment: .leading, spacing: 12) {
-                    BookItemView(book: book, displayMode: .large)
+                    BookItemView(book: book, displayMode: .large, onDelete: {
+                        onDelete?(book)
+                    })
                     
                     VStack(alignment: .leading, spacing: 4) {
                         Text(book.book.title)

@@ -35,10 +35,10 @@ struct TabBarButton: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 26, height: 26) // Aumenté el tamaño de los iconos
-                .foregroundColor(selectedTab == tab ? .purple : .gray)
+                .foregroundColor(selectedTab == tab ? .blue : .gray)
             Text(text)
                 .font(.system(size: 12)) // Aumenté el tamaño del texto
-                .foregroundColor(selectedTab == tab ? .purple : .gray)
+                .foregroundColor(selectedTab == tab ? .blue : .gray)
         }
         .frame(height: 44)
         .onTapGesture {

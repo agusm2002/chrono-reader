@@ -69,8 +69,10 @@ struct HomeView: View {
                                 ScrollView(.horizontal, showsIndicators: false) {
                                     HStack(spacing: 16) {
                                         ForEach(booksInProgress) { book in
-                                            BookItemView(book: book)
-                                                .frame(width: 150)
+                                            BookItemView(book: book, onDelete: {
+                                                deleteBook(book: book)
+                                            })
+                                            .frame(width: 150)
                                         }
                                     }
                                     .padding(.horizontal, 24)
@@ -128,7 +130,6 @@ struct HomeView: View {
                                 Text("No se encontraron resultados para \"\(searchText)\"")
                                     .font(.headline)
                                     .multilineTextAlignment(.center)
-
                                 Text("Intenta con otros términos de búsqueda")
                                     .font(.subheadline)
                                     .foregroundColor(.secondary)
@@ -138,7 +139,9 @@ struct HomeView: View {
                             .padding(.top, 40)
                         } else {
                             // Grid con todos los libros filtrados
-                            BookGridUpdatedView(books: filteredBooks, gridLayout: gridLayout)
+                            BookGridUpdatedView(books: filteredBooks, gridLayout: gridLayout, onDelete: { book in
+                                deleteBook(book: book)
+                            })
                                 .padding(.horizontal, 8)
                         }
                     }
@@ -255,9 +258,7 @@ struct HomeView: View {
 
         var coverImage: UIImage?
         var author: String = "Desconocido"
-        var title: String = url.lastPathComponent // Default title
-
-        // Buscar ComicInfo.xml y extraer metadatos
+        var title: String = url.lastPathComponent // Default title... // Buscar ComicInfo.xml y extraer metadatos
         for entry in archive {
             if entry.path.lowercased() == "comicinfo.xml" {
                 do {
@@ -334,6 +335,12 @@ struct HomeView: View {
     private func addBook(_ book: CompleteBook) {
         books.append(book)
     }
+
+    private func deleteBook(book: CompleteBook) {
+        if let index = books.firstIndex(where: { $0.id == book.id }) {
+            books.remove(at: index)
+        }
+    }
 }
 
 struct SearchBarView: View {
@@ -400,75 +407,28 @@ struct CategoryButton: View {
     var body: some View {
         Button(action: action) {
             Text(category.rawValue)
-                .font(.system(size: 14, weight: isSelected ? .bold : .medium))
-                .padding(.vertical, 8)
                 .padding(.horizontal, 16)
-                .background(
-                    Capsule()
-                        .fill(
-                            isSelected ?
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.3, green: 0.3, blue: 0.9),
-                                    Color(red: 0.6, green: 0.3, blue: 0.9)
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            ) :
-                            LinearGradient(
-                                colors: [Color.gray.opacity(0.1), Color.gray.opacity(0.1)],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                )
+                .padding(.vertical, 8)
+                .background(isSelected ? Color.blue : Color(.systemGray5))
                 .foregroundColor(isSelected ? .white : .primary)
+                .cornerRadius(8)
         }
     }
 }
 
-// Helper struct to decode ComicInfo.xml
-struct ComicInfo: Decodable {
+struct ComicInfo: Codable {
     let title: String?
     let series: String?
     let number: String?
-    let volume: String?
     let writer: String?
-    let penciller: String?
-    let inker: String?
-    let colorist: String?
-    let letterer: String?
-    let editor: String?
-    let publisher: String?
-    let genre: String?
-    let web: String?
-    let summary: String?
-    let notes: String?
-    let year: String?
-    let month: String?
-    let day: String?
 
     enum CodingKeys: String, CodingKey {
         case title = "Title"
         case series = "Series"
         case number = "Number"
-        case volume = "Volume"
         case writer = "Writer"
-        case penciller = "Penciller"
-        case inker = "Inker"
-        case colorist = "Colorist"
-        case letterer = "Letterer"
-        case editor = "Editor"
-        case publisher = "Publisher"
-        case genre = "Genre"
-        case web = "Web"
-        case summary = "Summary"
-        case notes = "Notes"
-        case year = "Year"
-        case month = "Month"
-        case day = "Day"
     }
-    
+
     init(xmlData: Data) throws {
         let decoder = XMLDecoder()
         self = try decoder.decode(ComicInfo.self, from: xmlData)
