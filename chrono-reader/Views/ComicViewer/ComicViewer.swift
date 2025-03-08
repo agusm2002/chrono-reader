@@ -17,16 +17,23 @@ struct ComicViewer: View {
     @State private var updatedBook: CompleteBook
     @Environment(\.presentationMode) var presentationMode
     
-    init(book: CompleteBook) {
+    // Callback para actualizar el progreso en HomeView
+    var onProgressUpdate: ((CompleteBook) -> Void)?
+    
+    init(book: CompleteBook, onProgressUpdate: ((CompleteBook) -> Void)? = nil) {
         self.book = book
+        self.onProgressUpdate = onProgressUpdate
         // Inicializar el estado con el libro actual
         self._updatedBook = State(initialValue: book)
         
-        // Inicializar la página actual basada en el progreso guardado
-        if book.book.progress > 0 && book.book.pageCount != nil {
-            let initialPage = Int(Double(book.book.pageCount!) * book.book.progress)
-            self._currentPage = State(initialValue: max(0, min(initialPage, (book.book.pageCount ?? 1) - 1)))
+        print("Inicializando ComicViewer para: \(book.book.title)")
+        print("Progreso guardado: \(book.book.progress * 100)%")
+        if let lastReadDate = book.book.lastReadDate {
+            print("Última lectura: \(lastReadDate)")
         }
+        
+        // No establecer la página inicial aquí, se hará después de cargar las páginas
+        // en la función loadComicPages
     }
     
     var body: some View {
@@ -64,10 +71,20 @@ struct ComicViewer: View {
             }
         }
         .onAppear {
+            print("ComicViewer apareciendo - cargando páginas")
             loadComicPages()
         }
         .onDisappear {
-            saveReadingProgress()
+            print("ComicViewer desapareciendo - guardando progreso final")
+            // Asegurarse de que el progreso se guarde al cerrar el visor
+            if !isLoading && totalPages > 0 {
+                saveReadingProgress()
+                
+                // Llamar al callback para actualizar el progreso en HomeView
+                if let finalBook = createUpdatedBook() {
+                    onProgressUpdate?(finalBook)
+                }
+            }
         }
     }
     
@@ -212,6 +229,9 @@ struct ComicViewer: View {
                 offset = .zero
                 lastOffset = .zero
             }
+            
+            // Guardar el progreso cuando cambia la página
+            saveReadingProgress()
         }
     }
     
@@ -365,6 +385,9 @@ struct ComicViewer: View {
             return
         }
         
+        print("Cargando cómic desde: \(url.path)")
+        print("Progreso guardado: \(book.book.progress * 100)%")
+        
         DispatchQueue.global(qos: .userInitiated).async {
             var loadedPages: [UIImage] = []
             
@@ -387,12 +410,13 @@ struct ComicViewer: View {
                 self.pages = loadedPages
                 self.totalPages = loadedPages.count
                 
+                print("Total de páginas cargadas: \(self.totalPages)")
+                
                 // Actualizar el libro con el recuento de páginas
-                // Crear una nueva instancia de Book con el pageCount actualizado
                 var updatedBookCopy = self.book.book
                 updatedBookCopy.pageCount = loadedPages.count
                 
-                // Crear una nueva instancia de CompleteBook con el ID y la ruta de la portada preservados
+                // Crear una nueva instancia de CompleteBook con los metadatos actualizados
                 self.updatedBook = CompleteBook(
                     id: book.id,
                     title: updatedBookCopy.title,
@@ -400,37 +424,118 @@ struct ComicViewer: View {
                     coverImage: updatedBookCopy.coverImage,
                     type: updatedBookCopy.type,
                     progress: updatedBookCopy.progress,
-                    localURL: self.book.metadata.localURL
+                    localURL: self.book.metadata.localURL,
+                    cover: book.getCoverImage(), // Mantener la portada existente
+                    lastReadDate: updatedBookCopy.lastReadDate // Mantener la fecha de última lectura
                 )
                 
+                // Establecer la página inicial basada en el progreso guardado
+                if self.book.book.progress > 0 && self.totalPages > 0 {
+                    // Calcular la página basada en el progreso
+                    let calculatedPage = Int(Double(self.totalPages - 1) * self.book.book.progress)
+                    // Asegurarse de que la página esté dentro de los límites válidos
+                    self.currentPage = max(0, min(calculatedPage, self.totalPages - 1))
+                    print("Restaurando a la página \(self.currentPage + 1) de \(self.totalPages) (progreso: \(self.book.book.progress * 100)%)")
+                } else {
+                    print("No hay progreso guardado, comenzando desde la página 1")
+                    self.currentPage = 0
+                }
+                
                 self.isLoading = false
+                
+                // Notificar que el cómic se ha cargado correctamente
+                print("Cómic cargado correctamente: \(self.book.book.title)")
             }
         }
     }
     
     // Función para guardar el progreso de lectura
     private func saveReadingProgress() {
-        guard totalPages > 0 else { return }
+        guard totalPages > 0 else { 
+            print("No se puede guardar el progreso: totalPages = 0")
+            return 
+        }
         
         // Calcular el progreso como un valor entre 0 y 1
-        let progress = Double(currentPage + 1) / Double(totalPages)
+        // Para evitar división por cero y asegurar que el progreso esté entre 0 y 1
+        let progress: Double
+        if totalPages <= 1 {
+            progress = currentPage > 0 ? 1.0 : 0.0
+        } else {
+            progress = Double(currentPage) / Double(totalPages - 1)
+        }
         
-        // Crear una nueva instancia de CompleteBook con el ID y la ruta de la portada preservados
-        self.updatedBook = CompleteBook(
+        // Asegurarse de que el progreso esté entre 0 y 1
+        let clampedProgress = max(0.0, min(1.0, progress))
+        
+        print("Guardando progreso: página \(currentPage + 1) de \(totalPages) = \(clampedProgress * 100)%")
+        
+        // Crear una copia del libro con el progreso actualizado
+        var bookCopy = book.book
+        bookCopy.progress = clampedProgress
+        bookCopy.lastReadDate = Date()
+        bookCopy.pageCount = totalPages
+        
+        // Crear la versión final del libro con todos los metadatos actualizados
+        let finalUpdatedBook = CompleteBook(
             id: book.id,
-            title: book.book.title,
-            author: book.book.author,
-            coverImage: book.book.coverImage,
-            type: book.book.type,
-            progress: progress,
-            localURL: book.metadata.localURL
+            title: bookCopy.title,
+            author: bookCopy.author,
+            coverImage: bookCopy.coverImage,
+            type: bookCopy.type,
+            progress: clampedProgress,
+            localURL: book.metadata.localURL,
+            cover: book.getCoverImage(),
+            lastReadDate: bookCopy.lastReadDate
         )
         
+        // Actualizar el estado local
+        self.updatedBook = finalUpdatedBook
+        
         // Notificar a la aplicación sobre el cambio en el progreso
-        NotificationCenter.default.post(
-            name: Notification.Name("BookProgressUpdated"),
-            object: nil,
-            userInfo: ["book": updatedBook]
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: Notification.Name("BookProgressUpdated"),
+                object: nil,
+                userInfo: ["book": finalUpdatedBook]
+            )
+            
+            print("Notificación de progreso enviada: \(clampedProgress * 100)% para \(finalUpdatedBook.book.title)")
+        }
+    }
+    
+    // Función auxiliar para crear un libro actualizado
+    private func createUpdatedBook() -> CompleteBook? {
+        guard totalPages > 0 else { return nil }
+        
+        // Calcular el progreso como un valor entre 0 y 1
+        let progress: Double
+        if totalPages <= 1 {
+            progress = currentPage > 0 ? 1.0 : 0.0
+        } else {
+            progress = Double(currentPage) / Double(totalPages - 1)
+        }
+        
+        // Asegurarse de que el progreso esté entre 0 y 1
+        let clampedProgress = max(0.0, min(1.0, progress))
+        
+        // Crear una copia del libro con el progreso actualizado
+        var bookCopy = book.book
+        bookCopy.progress = clampedProgress
+        bookCopy.lastReadDate = Date()
+        bookCopy.pageCount = totalPages
+        
+        // Crear la versión final del libro con todos los metadatos actualizados
+        return CompleteBook(
+            id: book.id,
+            title: bookCopy.title,
+            author: bookCopy.author,
+            coverImage: bookCopy.coverImage,
+            type: bookCopy.type,
+            progress: clampedProgress,
+            localURL: book.metadata.localURL,
+            cover: book.getCoverImage(),
+            lastReadDate: bookCopy.lastReadDate
         )
     }
     

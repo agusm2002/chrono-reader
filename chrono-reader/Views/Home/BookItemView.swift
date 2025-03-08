@@ -29,6 +29,7 @@ struct BookItemView: View {
                             
                             // Pequeño retraso para permitir que la animación comience
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                print("Abriendo cómic: \(book.book.title) con progreso: \(book.book.progress * 100)%")
                                 isShowingComicViewer = true
                             }
                         }
@@ -42,6 +43,7 @@ struct BookItemView: View {
                         .frame(height: 3)
                         .padding(.horizontal, 4)
                         .padding(.bottom, 1)
+                        .id("progressbar-\(book.id)-\(book.book.progress)")
                 }
             }
             .aspectRatio(0.68, contentMode: .fit)
@@ -66,8 +68,17 @@ struct BookItemView: View {
                     animateTransition = false
                 }
             }) {
-                ComicViewer(book: book)
-                    .transition(.opacity)
+                ComicViewer(book: book, onProgressUpdate: { updatedBook in
+                    print("BookItemView recibió actualización de progreso: \(updatedBook.book.progress * 100)%")
+                    
+                    // Enviar notificación directamente para actualizar el progreso
+                    NotificationCenter.default.post(
+                        name: Notification.Name("BookProgressUpdated"),
+                        object: nil,
+                        userInfo: ["book": updatedBook]
+                    )
+                })
+                .transition(.opacity)
             }
 
             if displayMode != .large {
@@ -121,16 +132,44 @@ struct BookItemView: View {
     private var progressPercentageOverlay: some View {
         Group {
             if book.book.progress > 0 && displayMode != .list {
-                Text("\(Int(book.book.progress * 100))%")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.black.opacity(0.6))
-                    .cornerRadius(4)
-                    .padding([.horizontal, .bottom], 8)
-                    .padding(.top, 6)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(Int(book.book.progress * 100))%")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.black.opacity(0.6))
+                        .cornerRadius(4)
+                        .id("progress-\(book.id)-\(book.book.progress)")
+                    
+                    if let lastReadDate = book.book.lastReadDate {
+                        Text(formatLastReadDate(lastReadDate))
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.7))
+                            .cornerRadius(4)
+                            .id("date-\(book.id)-\(lastReadDate.timeIntervalSince1970)")
+                    }
+                }
+                .padding([.horizontal, .bottom], 8)
+                .padding(.top, 6)
             }
+        }
+    }
+    
+    private func formatLastReadDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "Hoy"
+        } else if calendar.isDateInYesterday(date) {
+            return "Ayer"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            formatter.timeStyle = .none
+            return formatter.string(from: date)
         }
     }
 
@@ -184,6 +223,9 @@ struct BookItemView: View {
 struct ProgressBar: View {
     var value: Double
     var height: CGFloat = 4
+    
+    // Identificador único para forzar la actualización
+    private let id = UUID()
 
     var body: some View {
         GeometryReader { geometry in
@@ -201,5 +243,6 @@ struct ProgressBar: View {
         }
         .frame(height: height)
         .cornerRadius(height/2)
+        .id("\(id)-\(value)")
     }
 }
