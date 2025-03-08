@@ -358,7 +358,42 @@ struct HomeView: View {
     // Función para actualizar el progreso de un libro
     private func updateBookProgress(_ updatedBook: CompleteBook) {
         if let index = books.firstIndex(where: { $0.id == updatedBook.id }) {
-            books[index] = updatedBook
+            // Preservar la ruta de la portada
+            let existingCoverPath = books[index].metadata.coverPath
+            
+            // Crear una nueva instancia de CompleteBook con el ID existente y la ruta de la portada preservada
+            let bookWithPreservedCover = CompleteBook(
+                id: updatedBook.id,
+                title: updatedBook.book.title,
+                author: updatedBook.book.author,
+                coverImage: updatedBook.book.coverImage,
+                type: updatedBook.book.type,
+                progress: updatedBook.book.progress,
+                localURL: updatedBook.metadata.localURL
+            )
+            
+            // Si el libro actualizado tiene una ruta de portada, usarla; de lo contrario, usar la existente
+            if updatedBook.metadata.coverPath != nil {
+                books[index] = updatedBook
+            } else {
+                // Actualizar manualmente la ruta de la portada
+                var updatedMetadata = bookWithPreservedCover.metadata
+                updatedMetadata.coverPath = existingCoverPath
+                
+                // Crear una nueva instancia con la metadata actualizada
+                let finalBook = CompleteBook(
+                    id: bookWithPreservedCover.id,
+                    title: bookWithPreservedCover.book.title,
+                    author: bookWithPreservedCover.book.author,
+                    coverImage: bookWithPreservedCover.book.coverImage,
+                    type: bookWithPreservedCover.book.type,
+                    progress: bookWithPreservedCover.book.progress,
+                    localURL: updatedMetadata.localURL
+                )
+                
+                books[index] = finalBook
+            }
+            
             saveBooks() // Guardar los cambios en el almacenamiento persistente
         }
     }

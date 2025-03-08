@@ -57,17 +57,18 @@ struct BookMetadata: Codable {
 }
 
 struct CompleteBook: Identifiable, Codable, Equatable {
-    let id = UUID()
+    let id: UUID
     let book: Book
     let metadata: BookMetadata
 
-    init(title: String, author: String, coverImage: String, type: BookType, progress: Double, localURL: URL? = nil, cover: UIImage? = nil) {
+    init(id: UUID = UUID(), title: String, author: String, coverImage: String, type: BookType, progress: Double, localURL: URL? = nil, cover: UIImage? = nil) {
+        self.id = id
         self.book = Book(title: title, author: author, coverImage: coverImage, type: type, progress: progress)
         
         if let cover = cover {
             // Save the image to a local path and store that path
             let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-            let imagePath = documentsDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+            let imagePath = documentsDirectory.appendingPathComponent("\(id.uuidString).jpg")
             if let data = cover.jpegData(compressionQuality: 1.0) {
                 try? data.write(to: imagePath)
                 self.metadata = BookMetadata(localURL: localURL, coverPath: imagePath.path)

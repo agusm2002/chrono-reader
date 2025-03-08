@@ -392,15 +392,15 @@ struct ComicViewer: View {
                 var updatedBookCopy = self.book.book
                 updatedBookCopy.pageCount = loadedPages.count
                 
-                // Crear una nueva instancia de CompleteBook con el Book actualizado
+                // Crear una nueva instancia de CompleteBook con el ID y la ruta de la portada preservados
                 self.updatedBook = CompleteBook(
+                    id: book.id,
                     title: updatedBookCopy.title,
                     author: updatedBookCopy.author,
                     coverImage: updatedBookCopy.coverImage,
                     type: updatedBookCopy.type,
                     progress: updatedBookCopy.progress,
-                    localURL: self.book.metadata.localURL,
-                    cover: nil // No necesitamos crear una nueva imagen de portada
+                    localURL: self.book.metadata.localURL
                 )
                 
                 self.isLoading = false
@@ -415,19 +415,15 @@ struct ComicViewer: View {
         // Calcular el progreso como un valor entre 0 y 1
         let progress = Double(currentPage + 1) / Double(totalPages)
         
-        // Crear una nueva instancia de Book con el progreso actualizado
-        var updatedBookCopy = self.book.book
-        updatedBookCopy.progress = progress
-        
-        // Crear una nueva instancia de CompleteBook con el Book actualizado
+        // Crear una nueva instancia de CompleteBook con el ID y la ruta de la portada preservados
         self.updatedBook = CompleteBook(
-            title: updatedBookCopy.title,
-            author: updatedBookCopy.author,
-            coverImage: updatedBookCopy.coverImage,
-            type: updatedBookCopy.type,
+            id: book.id,
+            title: book.book.title,
+            author: book.book.author,
+            coverImage: book.book.coverImage,
+            type: book.book.type,
             progress: progress,
-            localURL: self.book.metadata.localURL,
-            cover: nil // No necesitamos crear una nueva imagen de portada
+            localURL: book.metadata.localURL
         )
         
         // Notificar a la aplicación sobre el cambio en el progreso
