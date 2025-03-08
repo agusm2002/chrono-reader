@@ -6,6 +6,8 @@ struct BookItemView: View {
     var displayMode: DisplayMode = .grid
     var onDelete: (() -> Void)?
     @State private var isShowingDeleteMenu = false
+    @State private var isShowingComicViewer = false
+    @State private var animateTransition = false
 
     enum DisplayMode {
         case grid, list, large
@@ -19,6 +21,20 @@ struct BookItemView: View {
                     .overlay(gradientOverlay)
                     .overlay(progressPercentageOverlay, alignment: .bottomTrailing)
                     .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+                    .onTapGesture {
+                        if book.book.type == .cbz || book.book.type == .cbr {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                animateTransition = true
+                            }
+                            
+                            // Pequeño retraso para permitir que la animación comience
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                isShowingComicViewer = true
+                            }
+                        }
+                    }
+                    .scaleEffect(animateTransition ? 1.05 : 1.0)
+                    .brightness(animateTransition ? 0.1 : 0)
 
                 // Barra de progreso principal
                 if displayMode != .list {
@@ -43,6 +59,15 @@ struct BookItemView: View {
                 }) {
                     Label("Eliminar", systemImage: "trash")
                 }
+            }
+            .fullScreenCover(isPresented: $isShowingComicViewer, onDismiss: {
+                // Resetear la animación cuando se cierra el visor
+                withAnimation {
+                    animateTransition = false
+                }
+            }) {
+                ComicViewer(book: book)
+                    .transition(.opacity)
             }
 
             if displayMode != .large {

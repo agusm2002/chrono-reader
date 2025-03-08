@@ -172,6 +172,25 @@ struct HomeView: View {
                     print(error)
                 }
             }
+            .onAppear {
+                // Cargar libros desde el almacenamiento persistente
+                loadBooks()
+                
+                // Registrar observador para actualizaciones de progreso
+                NotificationCenter.default.addObserver(
+                    forName: Notification.Name("BookProgressUpdated"),
+                    object: nil,
+                    queue: .main
+                ) { notification in
+                    if let updatedBook = notification.userInfo?["book"] as? CompleteBook {
+                        updateBookProgress(updatedBook)
+                    }
+                }
+            }
+            .onDisappear {
+                // Eliminar observador al desaparecer la vista
+                NotificationCenter.default.removeObserver(self)
+            }
 
             // Header fijo
             VStack(spacing: 0) {
@@ -228,12 +247,6 @@ struct HomeView: View {
             }
             .background(Color.clear)
             .ignoresSafeArea(edges: .top)
-        }
-        .onAppear {
-            loadBooks() // Cargar libros al aparecer la vista
-        }
-        .onChange(of: books) { _ in
-            saveBooks() // Guardar libros cada vez que cambian
         }
     }
 
@@ -339,6 +352,14 @@ struct HomeView: View {
     private func deleteBook(book: CompleteBook) {
         if let index = books.firstIndex(where: { $0.id == book.id }) {
             books.remove(at: index)
+        }
+    }
+
+    // Función para actualizar el progreso de un libro
+    private func updateBookProgress(_ updatedBook: CompleteBook) {
+        if let index = books.firstIndex(where: { $0.id == updatedBook.id }) {
+            books[index] = updatedBook
+            saveBooks() // Guardar los cambios en el almacenamiento persistente
         }
     }
 }
