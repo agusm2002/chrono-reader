@@ -140,7 +140,15 @@ class HomeViewModel: ObservableObject {
                 processComicBookFile(url: destinationURL, type: (fileExtension == "cbz" ? .cbz : .cbr))
             default:
                 // Para otros tipos de archivo, crearemos un nuevo Book con información básica
-                let newBook = CompleteBook(title: url.lastPathComponent, author: "Desconocido", coverImage: "", type: getBookType(for: url), progress: 0.0, localURL: destinationURL)
+                // Limpiar el nombre del archivo eliminando el prefijo UUID
+                let originalFileName = destinationURL.lastPathComponent
+                let cleanFileName = originalFileName.replacingOccurrences(
+                    of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-",
+                    with: "",
+                    options: .regularExpression
+                )
+                
+                let newBook = CompleteBook(title: cleanFileName, author: "Desconocido", coverImage: "", type: getBookType(for: url), progress: 0.0, localURL: destinationURL)
                 addBook(newBook)
             }
             
@@ -161,7 +169,15 @@ class HomeViewModel: ObservableObject {
                 case "cbz", "cbr":
                     processComicBookFile(url: destinationURL, type: (fileExtension == "cbz" ? .cbz : .cbr))
                 default:
-                    let newBook = CompleteBook(title: url.lastPathComponent, author: "Desconocido", coverImage: "", type: getBookType(for: url), progress: 0.0, localURL: destinationURL)
+                    // Limpiar el nombre del archivo eliminando el prefijo UUID
+                    let originalFileName = destinationURL.lastPathComponent
+                    let cleanFileName = originalFileName.replacingOccurrences(
+                        of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-",
+                        with: "",
+                        options: .regularExpression
+                    )
+                    
+                    let newBook = CompleteBook(title: cleanFileName, author: "Desconocido", coverImage: "", type: getBookType(for: url), progress: 0.0, localURL: destinationURL)
                     addBook(newBook)
                 }
                 
@@ -180,12 +196,25 @@ class HomeViewModel: ObservableObject {
         
         var coverImage: UIImage?
         var author: String = "Desconocido"
-        var title: String = url.deletingPathExtension().lastPathComponent
+        
+        // Limpiar el nombre del archivo eliminando el prefijo UUID
+        let originalFileName = url.lastPathComponent
+        let cleanFileName = originalFileName.replacingOccurrences(
+            of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-",
+            with: "",
+            options: .regularExpression
+        )
+        
+        // Eliminar la extensión del archivo
+        let fileNameWithoutExtension = cleanFileName.replacingOccurrences(
+            of: "\\.(cbz|cbr)$",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        
+        var title: String = fileNameWithoutExtension
         var series: String?
         var issueNumber: Int?
-        
-        // Extraer solo el nombre del archivo sin el prefijo UUID y sin la extensión
-        let originalFileName = url.lastPathComponent
         
         // Usar el controlador adecuado según el tipo de archivo
         if type == .cbz {
@@ -542,6 +571,35 @@ class HomeViewModel: ObservableObject {
                     // Aquí podrías implementar lógica adicional para manejar archivos faltantes
                 } else {
                     print("Archivo encontrado para \(book.book.title): \(localURL.path)")
+                    
+                    // Limpiar el título si contiene un prefijo UUID
+                    let currentTitle = book.book.title
+                    if currentTitle.range(of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-", options: .regularExpression) != nil {
+                        let cleanTitle = currentTitle.replacingOccurrences(
+                            of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-",
+                            with: "",
+                            options: .regularExpression
+                        )
+                        
+                        print("Limpiando título: \(currentTitle) -> \(cleanTitle)")
+                        
+                        // En lugar de intentar modificar la propiedad title, creamos directamente un nuevo libro
+                        let updatedBook = CompleteBook(
+                            id: book.id,
+                            title: cleanTitle,
+                            author: book.book.author,
+                            coverImage: book.book.coverImage,
+                            type: book.book.type,
+                            progress: book.book.progress,
+                            localURL: book.metadata.localURL,
+                            cover: book.getCoverImage(),
+                            lastReadDate: book.book.lastReadDate
+                        )
+                        
+                        books[index] = updatedBook
+                        needsSaving = true
+                        print("Título limpiado para \(cleanTitle)")
+                    }
                 }
             } else {
                 print("No hay ruta de archivo para \(book.book.title)")
@@ -562,6 +620,16 @@ class HomeViewModel: ObservableObject {
         guard type == .cbz || type == .cbr else { return nil }
         
         print("Extrayendo portada de: \(url.path)")
+        
+        // Limpiar el nombre del archivo eliminando el prefijo UUID
+        let originalFileName = url.lastPathComponent
+        let cleanFileName = originalFileName.replacingOccurrences(
+            of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-",
+            with: "",
+            options: .regularExpression
+        )
+        
+        print("Nombre limpio: \(cleanFileName)")
         
         if type == .cbz, let archive = ZipArchive(url: url, accessMode: .read) {
             // Ordenar las entradas para asegurarnos de obtener la primera imagen
