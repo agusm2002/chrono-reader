@@ -7,6 +7,12 @@ import UniformTypeIdentifiers
 import ZIPFoundation
 import XMLCoder
 import Combine
+import Unrar
+import Foundation
+
+// Definir alias para evitar ambigüedades
+typealias ZipArchive = ZIPFoundation.Archive
+typealias RarArchive = Unrar.Archive
 
 class HomeViewModel: ObservableObject {
     @Published var books: [CompleteBook] = []
@@ -169,86 +175,52 @@ class HomeViewModel: ObservableObject {
     
     // Función para extraer metadatos de un cómic
     func processComicBookFile(url: URL, type: BookType) {
-        guard let archive = Archive(url: url, accessMode: .read) else {
-            print("Error: No se pudo abrir el archivo CBZ/CBR")
-            return
-        }
-
+        print("Procesando cómic: \(url.lastPathComponent)")
+        print("Tipo de archivo: \(type.rawValue)")
+        
         var coverImage: UIImage?
         var author: String = "Desconocido"
-        // Extraer solo el nombre del archivo sin el prefijo UUID y sin la extensión
-        let originalFileName = url.lastPathComponent
-        let cleanFileName = originalFileName.replacingOccurrences(
-            of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-",
-            with: "",
-            options: .regularExpression
-        )
-        // Eliminar la extensión del archivo
-        let fileNameWithoutExtension = cleanFileName.replacingOccurrences(
-            of: "\\.(cbz|cbr)$",
-            with: "",
-            options: [.regularExpression, .caseInsensitive]
-        )
-        
-        var title: String = fileNameWithoutExtension
+        var title: String = url.deletingPathExtension().lastPathComponent
         var series: String?
         var issueNumber: Int?
         
-        print("Procesando cómic: \(title)")
+        // Extraer solo el nombre del archivo sin el prefijo UUID y sin la extensión
+        let originalFileName = url.lastPathComponent
         
-        // Buscar ComicInfo.xml y extraer metadatos
-        for entry in archive {
-            if entry.path.lowercased() == "comicinfo.xml" {
-                do {
-                    var data = Data()
-                    try archive.extract(entry) { data.append($0) }
-                    
-                    if let comicInfo = try? ComicInfo(xmlData: data) {
-                        if let writer = comicInfo.writer, !writer.isEmpty {
-                            author = writer
-                            print("Autor encontrado: \(author)")
-                        }
-                        
-                        if let comicTitle = comicInfo.title, !comicTitle.isEmpty {
-                            title = comicTitle
-                            print("Título encontrado: \(title)")
-                        }
-                        
-                        if let comicSeries = comicInfo.series, !comicSeries.isEmpty {
-                            series = comicSeries
-                            print("Serie encontrada: \(series ?? "")")
-                        }
-                        
-                        if let numberStr = comicInfo.number, let number = Int(numberStr) {
-                            issueNumber = number
-                            print("Número encontrado: \(issueNumber ?? 0)")
-                        }
-                    }
-                } catch {
-                    print("Error al extraer ComicInfo.xml: \(error)")
-                }
-                break
+        // Usar el controlador adecuado según el tipo de archivo
+        if type == .cbz {
+            // Para archivos CBZ (ZIP)
+            guard let archive = ZipArchive(url: url, accessMode: .read) else {
+                print("Error: No se pudo abrir el archivo CBZ")
+                return
             }
-        }
-
-        // Buscar la primera imagen (JPG o PNG) para usar como portada
-        for entry in archive {
-            let entryPath = entry.path.lowercased()
-            if entryPath.hasSuffix(".jpg") || entryPath.hasSuffix(".jpeg") || entryPath.hasSuffix(".png") {
-                do {
-                    var data = Data()
-                    try archive.extract(entry) { data.append($0) }
-                    if let image = UIImage(data: data) {
-                        coverImage = image
-                        print("Portada encontrada en: \(entry.path)")
-                        break
-                    }
-                } catch {
-                    print("Error al extraer la imagen de portada: \(error)")
-                }
+            
+            // Intentar extraer ComicInfo.xml
+            extractComicInfoFromZip(archive: archive, url: url, title: &title, author: &author, series: &series, issueNumber: &issueNumber)
+            
+            // Extraer la portada
+            coverImage = extractCoverFromZip(archive: archive)
+        } else if type == .cbr {
+            // Para archivos CBR (RAR)
+            do {
+                print("Intentando abrir archivo RAR: \(url.path)")
+                let archive = try RarArchive(path: url.path, password: nil)
+                
+                // Intentar extraer ComicInfo.xml
+                extractComicInfoFromRar(archive: archive, url: url, title: &title, author: &author, series: &series, issueNumber: &issueNumber)
+                
+                // Extraer la portada
+                coverImage = try extractCoverFromRar(archive: archive)
+            } catch {
+                print("Error al abrir archivo RAR: \(error)")
+                return
             }
+        } else {
+            print("Tipo de archivo no soportado: \(type.rawValue)")
+            return
         }
         
+        // Continuar con el procesamiento del cómic
         // Crear un nuevo libro con los metadatos extraídos
         var newBook = CompleteBook(
             title: title,
@@ -279,6 +251,145 @@ class HomeViewModel: ObservableObject {
         
         addBook(newBook)
         saveBooks() // Guardar inmediatamente después de añadir
+    }
+    
+    // Función para extraer ComicInfo.xml de un archivo ZIP
+    func extractComicInfoFromZip(archive: ZipArchive, url: URL, title: inout String, author: inout String, series: inout String?, issueNumber: inout Int?) {
+        for entry in archive {
+            if entry.path.lowercased().contains("comicinfo.xml") {
+                do {
+                    var data = Data()
+                    try archive.extract(entry) { data.append($0) }
+                    
+                    // Usar XMLParser en lugar de XMLDocument
+                    let comicInfoHandler = ComicInfoHandler()
+                    let parser = XMLParser(data: data)
+                    parser.delegate = comicInfoHandler
+                    
+                    if parser.parse() {
+                        if let comicTitle = comicInfoHandler.title, !comicTitle.isEmpty {
+                            title = comicTitle
+                            print("Título encontrado: \(title)")
+                        }
+                        
+                        if let comicSeries = comicInfoHandler.series, !comicSeries.isEmpty {
+                            series = comicSeries
+                            print("Serie encontrada: \(series ?? "Desconocida")")
+                        }
+                        
+                        if let numberStr = comicInfoHandler.number, let number = Int(numberStr) {
+                            issueNumber = number
+                            print("Número encontrado: \(number)")
+                        }
+                        
+                        if let comicWriter = comicInfoHandler.writer, !comicWriter.isEmpty {
+                            author = comicWriter
+                            print("Autor encontrado: \(author)")
+                        }
+                    }
+                } catch {
+                    print("Error al extraer ComicInfo.xml: \(error)")
+                }
+                break
+            }
+        }
+    }
+    
+    // Función para extraer ComicInfo.xml de un archivo RAR
+    func extractComicInfoFromRar(archive: RarArchive, url: URL, title: inout String, author: inout String, series: inout String?, issueNumber: inout Int?) {
+        do {
+            let entries = try archive.entries()
+            
+            if let comicInfoEntry = entries.first(where: { !$0.directory && $0.fileName.lowercased().contains("comicinfo.xml") }) {
+                print("ComicInfo.xml encontrado: \(comicInfoEntry.fileName)")
+                
+                let data = try archive.extract(comicInfoEntry)
+                
+                // Usar XMLParser en lugar de XMLDocument
+                let comicInfoHandler = ComicInfoHandler()
+                let parser = XMLParser(data: data)
+                parser.delegate = comicInfoHandler
+                
+                if parser.parse() {
+                    if let comicTitle = comicInfoHandler.title, !comicTitle.isEmpty {
+                        title = comicTitle
+                        print("Título encontrado: \(title)")
+                    }
+                    
+                    if let comicSeries = comicInfoHandler.series, !comicSeries.isEmpty {
+                        series = comicSeries
+                        print("Serie encontrada: \(series ?? "Desconocida")")
+                    }
+                    
+                    if let numberStr = comicInfoHandler.number, let number = Int(numberStr) {
+                        issueNumber = number
+                        print("Número encontrado: \(number)")
+                    }
+                    
+                    if let comicWriter = comicInfoHandler.writer, !comicWriter.isEmpty {
+                        author = comicWriter
+                        print("Autor encontrado: \(author)")
+                    }
+                }
+            }
+        } catch {
+            print("Error al extraer ComicInfo.xml de RAR: \(error)")
+        }
+    }
+    
+    // Función para extraer la portada de un archivo ZIP
+    func extractCoverFromZip(archive: ZipArchive) -> UIImage? {
+        for entry in archive.sorted(by: { $0.path < $1.path }) {
+            let entryPath = entry.path.lowercased()
+            if entryPath.hasSuffix(".jpg") || entryPath.hasSuffix(".jpeg") || entryPath.hasSuffix(".png") {
+                do {
+                    print("Encontrada posible portada: \(entry.path)")
+                    var data = Data()
+                    try archive.extract(entry) { data.append($0) }
+                    if let image = UIImage(data: data) {
+                        print("Portada extraída correctamente")
+                        return image
+                    } else {
+                        print("No se pudo crear la imagen desde los datos")
+                    }
+                } catch {
+                    print("Error al extraer la portada: \(error)")
+                }
+                break
+            }
+        }
+        return nil
+    }
+    
+    // Función para extraer la portada de un archivo RAR
+    func extractCoverFromRar(archive: RarArchive) throws -> UIImage? {
+        let entries = try archive.entries()
+        
+        let sortedEntries = entries
+            .sorted(by: { $0.fileName < $1.fileName })
+            .filter { !$0.directory && isImagePath($0.fileName) }
+        
+        if let firstImageEntry = sortedEntries.first {
+            print("Portada encontrada en: \(firstImageEntry.fileName)")
+            
+            let data = try archive.extract(firstImageEntry)
+            
+            if let image = UIImage(data: data) {
+                print("Portada extraída correctamente")
+                return image
+            } else {
+                print("No se pudo crear la imagen desde los datos")
+            }
+        }
+        
+        return nil
+    }
+    
+    // Función auxiliar para verificar si una ruta es una imagen
+    func isImagePath(_ path: String) -> Bool {
+        let imageExtensions = ["jpg", "jpeg", "png", "gif", "webp", "bmp"]
+        let pathExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
+        return imageExtensions.contains(pathExtension)
     }
     
     // Función para determinar el tipo de libro
@@ -452,7 +563,7 @@ class HomeViewModel: ObservableObject {
         
         print("Extrayendo portada de: \(url.path)")
         
-        if type == .cbz, let archive = Archive(url: url, accessMode: .read) {
+        if type == .cbz, let archive = ZipArchive(url: url, accessMode: .read) {
             // Ordenar las entradas para asegurarnos de obtener la primera imagen
             let sortedEntries = archive.sorted { $0.path < $1.path }
             
@@ -477,7 +588,34 @@ class HomeViewModel: ObservableObject {
             }
             print("No se encontraron imágenes en el archivo")
         } else if type == .cbr {
-            print("Extracción de portadas de archivos CBR no implementada")
+            do {
+                print("Intentando abrir archivo RAR para extraer portada: \(url.path)")
+                let archive = try RarArchive(path: url.path, password: nil)
+                
+                let entries = try archive.entries()
+                print("Entradas encontradas: \(entries.count)")
+                
+                let sortedEntries = entries
+                    .sorted(by: { $0.fileName < $1.fileName })
+                    .filter { !$0.directory && isImagePath($0.fileName) }
+                
+                if let firstImageEntry = sortedEntries.first {
+                    print("Portada encontrada en: \(firstImageEntry.fileName)")
+                    
+                    let data = try archive.extract(firstImageEntry)
+                    
+                    if let image = UIImage(data: data) {
+                        print("Portada extraída correctamente")
+                        return image
+                    } else {
+                        print("No se pudo crear la imagen desde los datos")
+                    }
+                } else {
+                    print("No se encontraron imágenes en el archivo RAR")
+                }
+            } catch {
+                print("Error al extraer portada de archivo RAR: \(error)")
+            }
         } else {
             print("No se pudo abrir el archivo")
         }
@@ -848,6 +986,41 @@ struct ComicInfo: Codable {
     init(xmlData: Data) throws {
         let decoder = XMLDecoder()
         self = try decoder.decode(ComicInfo.self, from: xmlData)
+    }
+}
+
+// Clase para manejar el parsing XML con XMLParser
+class ComicInfoHandler: NSObject, XMLParserDelegate {
+    var title: String?
+    var series: String?
+    var number: String?
+    var writer: String?
+    
+    private var currentElement = ""
+    private var currentValue = ""
+    
+    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
+        currentElement = elementName
+        currentValue = ""
+    }
+    
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        currentValue += string
+    }
+    
+    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName qName: String?) {
+        switch elementName {
+        case "Title":
+            title = currentValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        case "Series":
+            series = currentValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        case "Number":
+            number = currentValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        case "Writer":
+            writer = currentValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        default:
+            break
+        }
     }
 }
 

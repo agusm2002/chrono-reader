@@ -1,5 +1,6 @@
 import SwiftUI
 import ZIPFoundation
+import Unrar
 
 struct ComicViewer: View {
     let book: CompleteBook
@@ -381,32 +382,22 @@ struct ComicViewer: View {
     // Función para cargar las páginas del cómic
     private func loadComicPages() {
         guard let url = book.metadata.localURL else {
+            print("Error: URL local no disponible")
             isLoading = false
             return
         }
         
         print("Cargando cómic desde: \(url.path)")
+        print("Tipo de archivo: \(book.book.type.rawValue)")
         print("Progreso guardado: \(book.book.progress * 100)%")
         
         DispatchQueue.global(qos: .userInitiated).async {
-            var loadedPages: [UIImage] = []
-            
-            switch book.book.type {
-            case .cbz:
-                loadedPages = loadCBZPages(from: url)
-            case .cbr:
-                loadedPages = loadCBRPages(from: url)
-            default:
-                break
-            }
-            
-            // Ordenar las páginas por nombre de archivo
-            loadedPages.sort { (_, _) in
-                // Aquí se implementaría la lógica de ordenación si es necesario
-                return true
-            }
+            // Usar el ArchiveHelper para cargar las imágenes según el tipo de archivo
+            print("Iniciando carga de imágenes con ArchiveHelper")
+            let loadedPages = ArchiveHelper.loadImages(from: url, type: book.book.type)
             
             DispatchQueue.main.async {
+                print("Carga de imágenes completada. Total: \(loadedPages.count)")
                 self.pages = loadedPages
                 self.totalPages = loadedPages.count
                 
@@ -537,46 +528,6 @@ struct ComicViewer: View {
             cover: book.getCoverImage(),
             lastReadDate: bookCopy.lastReadDate
         )
-    }
-    
-    // Función para cargar páginas de un archivo CBZ
-    private func loadCBZPages(from url: URL) -> [UIImage] {
-        var images: [UIImage] = []
-        
-        guard let archive = Archive(url: url, accessMode: .read) else {
-            return images
-        }
-        
-        let imageExtensions = ["jpg", "jpeg", "png", "gif"]
-        
-        for entry in archive.sorted(by: { $0.path < $1.path }) {
-            let pathExtension = URL(fileURLWithPath: entry.path).pathExtension.lowercased()
-            
-            if imageExtensions.contains(pathExtension) {
-                do {
-                    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-                    try archive.extract(entry, to: tempURL)
-                    
-                    if let imageData = try? Data(contentsOf: tempURL),
-                       let image = UIImage(data: imageData) {
-                        images.append(image)
-                    }
-                    
-                    try? FileManager.default.removeItem(at: tempURL)
-                } catch {
-                    print("Error extracting \(entry.path): \(error)")
-                }
-            }
-        }
-        
-        return images
-    }
-    
-    // Función para cargar páginas de un archivo CBR
-    private func loadCBRPages(from url: URL) -> [UIImage] {
-        // La implementación para CBR requeriría una biblioteca adicional para manejar archivos RAR
-        // Por ahora, devolvemos un array vacío
-        return []
     }
 }
 
