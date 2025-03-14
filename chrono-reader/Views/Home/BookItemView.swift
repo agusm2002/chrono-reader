@@ -68,7 +68,7 @@ struct BookItemView: View {
                     animateTransition = false
                 }
             }) {
-                ComicViewer(book: book, onProgressUpdate: { updatedBook in
+                EnhancedComicViewer(book: book, onProgressUpdate: { updatedBook in
                     print("BookItemView recibió actualización de progreso: \(updatedBook.book.progress * 100)%")
                     
                     // Enviar notificación directamente para actualizar el progreso
