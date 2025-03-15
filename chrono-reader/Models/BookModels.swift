@@ -61,10 +61,12 @@ struct CompleteBook: Identifiable, Codable, Equatable {
     let id: UUID
     let book: Book
     let metadata: BookMetadata
+    let lastPageOffsetPCT: Double?
 
-    init(id: UUID = UUID(), title: String, author: String, coverImage: String, type: BookType, progress: Double, localURL: URL? = nil, cover: UIImage? = nil, lastReadDate: Date? = nil) {
+    init(id: UUID = UUID(), title: String, author: String, coverImage: String, type: BookType, progress: Double, localURL: URL? = nil, cover: UIImage? = nil, lastReadDate: Date? = nil, lastPageOffsetPCT: Double? = nil) {
         self.id = id
         self.book = Book(title: title, author: author, coverImage: coverImage, type: type, progress: progress, lastReadDate: lastReadDate)
+        self.lastPageOffsetPCT = lastPageOffsetPCT
         
         if let cover = cover {
             // Save the image to a local path and store that path
@@ -125,7 +127,8 @@ struct CompleteBook: Identifiable, Codable, Equatable {
             progress: book.progress,
             localURL: metadata.localURL,
             cover: cover,
-            lastReadDate: book.lastReadDate
+            lastReadDate: book.lastReadDate,
+            lastPageOffsetPCT: lastPageOffsetPCT
         )
     }
     
@@ -147,7 +150,8 @@ struct CompleteBook: Identifiable, Codable, Equatable {
             progress: progress,
             localURL: metadata.localURL,
             cover: getCoverImage(), // Mantener la portada existente
-            lastReadDate: bookCopy.lastReadDate
+            lastReadDate: bookCopy.lastReadDate,
+            lastPageOffsetPCT: lastPageOffsetPCT
         )
     }
     

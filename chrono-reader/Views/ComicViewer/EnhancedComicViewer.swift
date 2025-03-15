@@ -32,6 +32,7 @@ class ComicViewerModel: ObservableObject {
     @Published var scale: CGFloat = 1.0
     @Published var doublePaged: Bool = false
     @Published var lastPageOffsetPCT: Double? = nil
+    @Published var pendingInitialScroll: Bool = false
     
     let book: CompleteBook
     
@@ -63,13 +64,20 @@ class ComicViewerModel: ObservableObject {
                     let calculatedPage = Int(Double(self.totalPages - 1) * self.book.book.progress)
                     self.currentPage = max(0, min(calculatedPage, self.totalPages - 1))
                     
-                    // Si es un webtoon, podríamos restaurar la posición vertical dentro de la página
-                    // Esto se implementaría en el controlador de paginación
+                    // Si es un webtoon, restaurar la posición vertical dentro de la página
                     if self.readingMode.isVertical {
-                        // Por ahora, simplemente establecemos un valor predeterminado
-                        // En una implementación completa, esto se guardaría y recuperaría de la base de datos
-                        self.lastPageOffsetPCT = 0.0
+                        // Recuperar la posición vertical guardada del libro
+                        if let savedOffset = self.book.lastPageOffsetPCT {
+                            self.lastPageOffsetPCT = savedOffset
+                            print("Restaurando posición vertical: \(savedOffset * 100)%")
+                        } else {
+                            // Si no hay posición guardada, usar 0.0 como valor predeterminado
+                            self.lastPageOffsetPCT = 0.0
+                        }
                     }
+                    
+                    // Marcar que hay un desplazamiento inicial pendiente
+                    self.pendingInitialScroll = true
                     
                     print("Restaurando a la página \(self.currentPage + 1) de \(self.totalPages)")
                 }
@@ -104,6 +112,17 @@ class ComicViewerModel: ObservableObject {
         bookCopy.lastReadDate = Date()
         bookCopy.pageCount = totalPages
         
+        // Si estamos en modo vertical (webtoon), guardar también la posición vertical
+        if readingMode.isVertical {
+            // Aquí deberíamos guardar lastPageOffsetPCT en la base de datos
+            // Por ahora, solo lo imprimimos para depuración
+            if let offset = lastPageOffsetPCT {
+                print("Guardando posición vertical para webtoon: \(offset * 100)%")
+                // En una implementación completa, esto se guardaría en la base de datos
+                // bookCopy.lastPageOffsetPCT = offset
+            }
+        }
+        
         // Crear la versión final del libro con todos los metadatos actualizados
         return CompleteBook(
             id: book.id,
@@ -114,7 +133,8 @@ class ComicViewerModel: ObservableObject {
             progress: clampedProgress,
             localURL: book.metadata.localURL,
             cover: book.getCoverImage(),
-            lastReadDate: bookCopy.lastReadDate
+            lastReadDate: bookCopy.lastReadDate,
+            lastPageOffsetPCT: readingMode.isVertical ? lastPageOffsetPCT : nil
         )
     }
     
@@ -458,6 +478,15 @@ class IVPagingController: UIViewController {
         setupGestures()
     }
     
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        
+        // Aplicar el desplazamiento inicial si es necesario
+        if model.pendingInitialScroll {
+            applyInitialScroll()
+        }
+    }
+    
     private func setupCollectionView() {
         // Crear el layout según el modo de lectura
         layout = createLayout()
@@ -527,9 +556,8 @@ class IVPagingController: UIViewController {
     private func updateGestureRecognizers() {
         // Asegurarse de que el gesto de toque no interfiera con los gestos de doble toque de las celdas
         for cell in collectionView.visibleCells {
-            if let pageCell = cell as? ComicPageCell,
-               let doubleTapGesture = pageCell.scrollView?.doubleTapGesture {
-                tapGestureRecognizer.require(toFail: doubleTapGesture)
+            if let pageCell = cell as? ComicPageCell {
+                tapGestureRecognizer.require(toFail: pageCell.scrollView.doubleTapGesture)
             }
         }
     }
@@ -643,11 +671,11 @@ class IVPagingController: UIViewController {
         collectionView.transform = model.readingMode.isInverted ? CGAffineTransform(scaleX: -1, y: 1) : .identity
     }
     
-    private func scrollToPage(_ page: Int) {
+    private func scrollToPage(_ page: Int, animated: Bool = true) {
         guard page >= 0 && page < model.pages.count else { return }
         
         let indexPath = IndexPath(item: page, section: 0)
-        collectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: true)
+        collectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: animated)
         
         // Si estamos en modo vertical y hay una posición guardada, restaurarla
         if model.readingMode.isVertical, let offset = model.lastPageOffsetPCT {
@@ -655,8 +683,8 @@ class IVPagingController: UIViewController {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
                 guard let self = self else { return }
                 
-                if let cell = self.collectionView.cellForItem(at: indexPath) as? ComicPageCell,
-                   let scrollView = cell.scrollView {
+                if let cell = self.collectionView.cellForItem(at: indexPath) as? ComicPageCell {
+                    let scrollView = cell.scrollView
                     let contentHeight = scrollView.contentSize.height
                     let frameHeight = scrollView.frame.height
                     
@@ -670,6 +698,20 @@ class IVPagingController: UIViewController {
                     }
                 }
             }
+        }
+    }
+    
+    private func applyInitialScroll() {
+        // Asegurarse de que solo se aplique una vez
+        model.pendingInitialScroll = false
+        
+        // Desplazarse a la página guardada
+        scrollToPage(model.currentPage, animated: false)
+        
+        // Imprimir información de depuración
+        print("Aplicando desplazamiento inicial a la página \(model.currentPage + 1) de \(model.totalPages)")
+        if let offset = model.lastPageOffsetPCT {
+            print("Con posición vertical: \(offset * 100)%")
         }
     }
 }
@@ -690,9 +732,7 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
             cell.configure(with: image, readingMode: model.readingMode)
             
             // Actualizar los gestos para esta celda
-            if let doubleTapGesture = cell.scrollView?.doubleTapGesture {
-                tapGestureRecognizer.require(toFail: doubleTapGesture)
-            }
+            tapGestureRecognizer.require(toFail: cell.scrollView.doubleTapGesture)
         }
         
         return cell
@@ -710,6 +750,11 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
                 model.currentPage = max(0, min(page, model.pages.count - 1))
                 
                 // Calcular la posición dentro de la página para webtoons
+                if let cell = collectionView.cellForItem(at: IndexPath(item: model.currentPage, section: 0)) as? ComicPageCell {
+                    updatePageOffset(for: cell)
+                }
+            } else {
+                // Incluso si la página no cambió, actualizar la posición dentro de la página
                 if let cell = collectionView.cellForItem(at: IndexPath(item: model.currentPage, section: 0)) as? ComicPageCell {
                     updatePageOffset(for: cell)
                 }
@@ -748,7 +793,7 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
     
     private func updatePageOffset(for cell: ComicPageCell) {
         // Calcular la posición relativa dentro de la página
-        guard let scrollView = cell.scrollView else { return }
+        let scrollView = cell.scrollView
         let frame = scrollView.frame
         let contentSize = scrollView.contentSize
         
@@ -761,6 +806,9 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
             if maxOffset > 0 {
                 let percentage = Double(offset / maxOffset)
                 model.lastPageOffsetPCT = max(0.0, min(1.0, percentage))
+                if let offsetPCT = model.lastPageOffsetPCT {
+                    print("Actualizando posición vertical: \(offsetPCT * 100)%")
+                }
             }
         }
     }
@@ -769,9 +817,10 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
 // MARK: - Celda para Página de Cómic
 
 class ComicPageCell: UICollectionViewCell {
-    var scrollView: ZoomingScrollView!
+    var scrollView: ZoomingScrollView
     
     override init(frame: CGRect) {
+        scrollView = ZoomingScrollView(frame: frame)
         super.init(frame: frame)
         setupViews()
     }
@@ -781,8 +830,7 @@ class ComicPageCell: UICollectionViewCell {
     }
     
     private func setupViews() {
-        // Crear el scroll view con zoom
-        scrollView = ZoomingScrollView(frame: contentView.bounds)
+        // Añadir el scroll view a la vista
         contentView.addSubview(scrollView)
         
         // Configurar constraints
