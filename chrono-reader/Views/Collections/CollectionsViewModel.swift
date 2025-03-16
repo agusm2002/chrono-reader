@@ -58,8 +58,17 @@ class CollectionsViewModel: ObservableObject {
     
     // Obtener los libros de una colección específica
     func booksInCollection(_ collection: Collection) -> [CompleteBook] {
-        return availableBooks.filter { book in
-            collection.books.contains(book.id)
+        return collection.books.compactMap { bookId in
+            availableBooks.first { $0.id == bookId }
+        }
+    }
+    
+    // Función para actualizar el orden de los libros en una colección
+    func updateBooksOrder(in collection: Collection, books: [CompleteBook]) {
+        if let index = collections.firstIndex(where: { $0.id == collection.id }) {
+            collections[index].books = books.map { $0.id }
+            saveCollections()
+            print("Orden de libros actualizado en colección: \(collection.name)")
         }
     }
     
@@ -142,5 +151,22 @@ class CollectionsViewModel: ObservableObject {
         
         // Cargar los libros disponibles
         loadAvailableBooks()
+    }
+    
+    // Función para renombrar una colección
+    func renameCollection(_ collection: Collection, newName: String) {
+        if let index = collections.firstIndex(where: { $0.id == collection.id }) {
+            collections[index].name = newName
+            saveCollections()
+            print("Colección renombrada a: \(newName)")
+        }
+    }
+    
+    // Función para actualizar el orden de las colecciones
+    func updateCollectionsOrder(from fromIndex: Int, to toIndex: Int) {
+        let collection = collections.remove(at: fromIndex)
+        collections.insert(collection, at: toIndex)
+        saveCollections()
+        print("Orden de colecciones actualizado")
     }
 } 

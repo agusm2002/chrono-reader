@@ -11,11 +11,11 @@ struct StackedCoversView: View {
             // Mostrar hasta 3 portadas escalonadas
             ForEach(0..<min(books.count, maxCovers), id: \.self) { index in
                 bookCover(for: books[index])
-                    .frame(width: 100, height: 140)
+                    .frame(width: 120, height: 170)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
                     .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 3)
                     .rotationEffect(.degrees(Double(index * 5) - 5))
-                    .offset(x: CGFloat(index * 12) - 12, y: 0)
+                    .offset(x: CGFloat(index * 15) - 15, y: 0)
                     .zIndex(Double(maxCovers - index))
             }
             
@@ -24,7 +24,7 @@ struct StackedCoversView: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 10)
                         .fill(Color.gray.opacity(0.2))
-                        .frame(width: 100, height: 140)
+                        .frame(width: 120, height: 170)
                     
                     Image(systemName: "books.vertical")
                         .font(.system(size: 36))
@@ -32,7 +32,7 @@ struct StackedCoversView: View {
                 }
             }
         }
-        .frame(width: 140, height: 140)
+        .frame(width: 170, height: 170)
     }
     
     private func bookCover(for book: CompleteBook) -> some View {

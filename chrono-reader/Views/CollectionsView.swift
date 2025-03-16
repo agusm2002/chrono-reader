@@ -4,6 +4,8 @@ import SwiftUI
 
 struct CollectionsView: View {
     @StateObject private var viewModel = CollectionsViewModel()
+    @State private var isDragging = false
+    @State private var draggedItemIndex: Int?
     
     var body: some View {
         NavigationView {
@@ -21,14 +23,27 @@ struct CollectionsView: View {
                         // Lista de colecciones
                         ScrollView {
                             LazyVStack(spacing: 30) {
-                                ForEach(viewModel.collections) { collection in
+                                ForEach(Array(viewModel.collections.enumerated()), id: \.element.id) { index, collection in
                                     CollectionRowView(
                                         collection: collection,
-                                        books: viewModel.booksInCollection(collection),
+                                        viewModel: viewModel,
                                         onDelete: {
                                             viewModel.deleteCollection(collection)
                                         }
                                     )
+                                    .opacity(isDragging && draggedItemIndex != index ? 0.7 : 1.0)
+                                    .onDrag {
+                                        draggedItemIndex = index
+                                        isDragging = true
+                                        return NSItemProvider(object: "\(index)" as NSString)
+                                    }
+                                    .onDrop(of: [.text], delegate: CollectionDropDelegate(
+                                        item: collection,
+                                        currentIndex: index,
+                                        viewModel: viewModel,
+                                        isDragging: $isDragging,
+                                        draggedItemIndex: $draggedItemIndex
+                                    ))
                                 }
                             }
                             .padding(.horizontal, 16)
@@ -55,6 +70,7 @@ struct CollectionsView: View {
                         }
                         .padding(.trailing, 24)
                         .padding(.bottom, 65)
+                        .disabled(isDragging)
                     }
                 }
             }
@@ -100,6 +116,49 @@ struct CollectionsView: View {
             .padding(.top, 16)
         }
         .padding()
+    }
+}
+
+// Delegado para manejar el drop de colecciones
+struct CollectionDropDelegate: DropDelegate {
+    let item: Collection
+    let currentIndex: Int
+    let viewModel: CollectionsViewModel
+    @Binding var isDragging: Bool
+    @Binding var draggedItemIndex: Int?
+    
+    func performDrop(info: DropInfo) -> Bool {
+        guard let fromIndex = draggedItemIndex else { return false }
+        
+        withAnimation(.easeInOut(duration: 0.2)) {
+            viewModel.updateCollectionsOrder(from: fromIndex, to: currentIndex)
+            isDragging = false
+            draggedItemIndex = nil
+        }
+        
+        return true
+    }
+    
+    func dropEntered(info: DropInfo) {
+        guard let fromIndex = draggedItemIndex,
+              fromIndex != currentIndex else { return }
+        
+        withAnimation(.easeInOut(duration: 0.2)) {
+            viewModel.updateCollectionsOrder(from: fromIndex, to: currentIndex)
+            draggedItemIndex = currentIndex
+        }
+    }
+    
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        return DropProposal(operation: .move)
+    }
+    
+    func dropExited(info: DropInfo) {
+        // No reseteamos isDragging aquí para evitar parpadeos durante el arrastre
+    }
+    
+    func validateDrop(info: DropInfo) -> Bool {
+        return draggedItemIndex != nil
     }
 }
 

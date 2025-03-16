@@ -105,6 +105,9 @@ struct BookItemView: View {
                 Image(uiImage: coverImage)
                     .resizable()
                     .scaledToFill()
+                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .aspectRatio(2/3, contentMode: .fill)
+                    .clipped()
             } else {
                 ZStack {
                     Color(.systemGray5)
@@ -112,6 +115,7 @@ struct BookItemView: View {
                         .font(.title)
                         .foregroundColor(.gray)
                 }
+                .aspectRatio(2/3, contentMode: .fill)
             }
         }
     }
@@ -180,24 +184,45 @@ struct BookItemView: View {
                 .lineLimit(displayMode == .large ? 2 : 1)
                 .foregroundColor(.primary)
 
-            Text(book.book.author)
-                .font(.system(size: displayMode == .large ? 13 : 11))
-                .lineLimit(1)
-                .foregroundColor(.secondary)
-
-            HStack(spacing: 4) {
-                typeBadge
-
-                if let issue = book.book.issueNumber {
-                    Text("#\(issue)")
-                        .font(.system(size: 10, weight: .semibold))
+            if let localURL = book.metadata.localURL,
+               let fileSize = try? FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? Int64 {
+                HStack(spacing: 4) {
+                    Text(formatFileSize(fileSize))
+                        .font(.system(size: 10, weight: .medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(Color.gray.opacity(0.15))
                         .cornerRadius(4)
+                    
+                    if let pageCount = book.book.pageCount, pageCount > 0 {
+                        Text("\(pageCount) págs.")
+                            .font(.system(size: 10, weight: .medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.gray.opacity(0.15))
+                            .cornerRadius(4)
+                    }
+                    
+                    typeBadge
+                    
+                    if let issue = book.book.issueNumber {
+                        Text("#\(issue)")
+                            .font(.system(size: 10, weight: .semibold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.gray.opacity(0.15))
+                            .cornerRadius(4)
+                    }
                 }
             }
         }
+    }
+
+    private func formatFileSize(_ size: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useAll]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: size)
     }
 
     private var typeBadge: some View {
@@ -212,9 +237,9 @@ struct BookItemView: View {
 
     private var badgeColor: Color {
         switch book.book.type {
-        case .epub: return .blue
-        case .pdf: return .red
-        case .cbr, .cbz: return .purple
+        case .epub: return Color(red: 0.3, green: 0.6, blue: 0.9)
+        case .pdf: return Color(red: 0.9, green: 0.3, blue: 0.3)
+        case .cbr, .cbz: return Color(red: 0.7, green: 0.4, blue: 0.9)
         }
     }
 }

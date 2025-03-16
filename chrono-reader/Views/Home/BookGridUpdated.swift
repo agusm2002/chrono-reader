@@ -91,13 +91,54 @@ struct BookGridUpdatedView: View {
                             .font(.headline)
                             .lineLimit(2)
                         
-                        Text(book.book.author)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                        if let localURL = book.metadata.localURL,
+                           let fileSize = try? FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? Int64 {
+                            HStack(spacing: 4) {
+                                let fileSizeString = formatFileSize(fileSize)
+                                Text(fileSizeString)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.gray.opacity(0.15))
+                                    .cornerRadius(4)
+                                
+                                Text(book.book.type.rawValue.uppercased())
+                                    .font(.system(size: 11, weight: .bold))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(badgeColor(for: book.book.type))
+                                    .foregroundColor(.white)
+                                    .cornerRadius(4)
+                                
+                                if let issue = book.book.issueNumber {
+                                    Text("#\(issue)")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.gray.opacity(0.15))
+                                        .cornerRadius(4)
+                                }
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
             }
+        }
+    }
+    
+    private func formatFileSize(_ size: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useAll]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: size)
+    }
+    
+    private func badgeColor(for type: BookType) -> Color {
+        switch type {
+        case .epub: return Color(red: 0.3, green: 0.6, blue: 0.9)
+        case .pdf: return Color(red: 0.9, green: 0.3, blue: 0.3)
+        case .cbr, .cbz: return Color(red: 0.7, green: 0.4, blue: 0.9)
         }
     }
 }

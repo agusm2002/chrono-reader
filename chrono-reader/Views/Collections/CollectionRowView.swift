@@ -7,14 +7,16 @@ import UIKit // Necesario para UIImage
 
 struct CollectionRowView: View {
     let collection: Collection
-    let books: [CompleteBook]
+    @ObservedObject var viewModel: CollectionsViewModel
     var onDelete: (() -> Void)?
+    @State private var isShowingRenameAlert = false
+    @State private var newName = ""
     
     var body: some View {
-        NavigationLink(destination: CollectionDetailView(collection: collection, books: books)) {
+        NavigationLink(destination: CollectionDetailView(collection: collection, viewModel: viewModel)) {
             HStack(spacing: 24) {
                 // Portadas escalonadas
-                StackedCoversView(books: books)
+                StackedCoversView(books: viewModel.booksInCollection(collection))
                 
                 // Información de la colección
                 VStack(alignment: .leading, spacing: 6) {
@@ -24,12 +26,13 @@ struct CollectionRowView: View {
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     
-                    Text("\(books.count) \(books.count == 1 ? "libro" : "libros")")
+                    Text("\(viewModel.booksInCollection(collection).count) \(viewModel.booksInCollection(collection).count == 1 ? "libro" : "libros")")
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                     
                     // Mostrar progreso general si hay libros
-                    if !books.isEmpty {
+                    if !viewModel.booksInCollection(collection).isEmpty {
+                        let books = viewModel.booksInCollection(collection)
                         let averageProgress = books.reduce(0.0) { $0 + $1.book.progress } / Double(books.count)
                         
                         HStack(spacing: 8) {
@@ -49,6 +52,13 @@ struct CollectionRowView: View {
                 
                 // Botón de menú
                 Menu {
+                    Button(action: {
+                        newName = collection.name
+                        isShowingRenameAlert = true
+                    }) {
+                        Label("Renombrar", systemImage: "pencil")
+                    }
+                    
                     Button(role: .destructive, action: {
                         onDelete?()
                     }) {
@@ -65,11 +75,11 @@ struct CollectionRowView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 24)
-            .frame(height: 180)
+            .frame(height: 210)
             .background(
                 ZStack {
                     // Fondo con blur al estilo Apple Books
-                    if !books.isEmpty, let firstBook = books.first, let coverPath = firstBook.metadata.coverPath, let coverImage = UIImage(contentsOfFile: coverPath) {
+                    if !viewModel.booksInCollection(collection).isEmpty, let firstBook = viewModel.booksInCollection(collection).first, let coverPath = firstBook.metadata.coverPath, let coverImage = UIImage(contentsOfFile: coverPath) {
                         Image(uiImage: coverImage)
                             .resizable()
                             .scaledToFill()
@@ -93,16 +103,32 @@ struct CollectionRowView: View {
             .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
         }
         .buttonStyle(PlainButtonStyle())
+        .alert("Renombrar colección", isPresented: $isShowingRenameAlert) {
+            TextField("Nombre", text: $newName)
+            Button("Cancelar", role: .cancel) { }
+            Button("Renombrar") {
+                if !newName.isEmpty {
+                    viewModel.renameCollection(collection, newName: newName)
+                }
+            }
+        } message: {
+            Text("Introduce el nuevo nombre para la colección")
+        }
     }
 }
 
 // Vista de detalle de la colección
 struct CollectionDetailView: View {
     let collection: Collection
-    let books: [CompleteBook]
+    @ObservedObject var viewModel: CollectionsViewModel
     @State private var selectedBook: CompleteBook? = nil
     @State private var showingComicViewer = false
     @State private var animateTransition = false
+    @State private var isDragging = false
+    
+    var books: [CompleteBook] {
+        viewModel.booksInCollection(collection)
+    }
     
     var body: some View {
         ScrollView {
@@ -142,18 +168,27 @@ struct CollectionDetailView: View {
                                             animateTransition = true
                                         }
                                         
-                                        // Pequeño retraso para permitir que la animación comience
                                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                             print("Abriendo cómic desde colección: \(book.book.title)")
                                             showingComicViewer = true
                                         }
                                     } else {
-                                        // Para otros tipos de libros, podríamos implementar otra acción
                                         print("Abrir libro: \(book.book.title)")
                                     }
                                 }
                                 .scaleEffect(animateTransition && selectedBook?.id == book.id ? 1.05 : 1.0)
                                 .brightness(animateTransition && selectedBook?.id == book.id ? 0.1 : 0)
+                                .onDrag {
+                                    // Guardar el índice del libro que se está arrastrando
+                                    if let index = books.firstIndex(where: { $0.id == book.id }) {
+                                        withAnimation {
+                                            isDragging = true
+                                        }
+                                        return NSItemProvider(object: "\(index)" as NSString)
+                                    }
+                                    return NSItemProvider()
+                                }
+                                .onDrop(of: [.text], delegate: DropViewDelegate(item: book, collection: collection, viewModel: viewModel, isDragging: $isDragging))
                             
                             // Información del libro
                             VStack(alignment: .leading, spacing: 4) {
@@ -181,6 +216,7 @@ struct CollectionDetailView: View {
                                 }
                             }
                         }
+                        .opacity(isDragging ? 0.7 : 1.0)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -190,17 +226,14 @@ struct CollectionDetailView: View {
         .navigationTitle(collection.name)
         .navigationBarTitleDisplayMode(.inline)
         .fullScreenCover(isPresented: $showingComicViewer, onDismiss: {
-            // Resetear la animación cuando se cierra el visor
             withAnimation {
                 animateTransition = false
             }
         }) {
             if let book = selectedBook {
                 EnhancedComicViewer(book: book, onProgressUpdate: { updatedBook in
-                    // Aquí podríamos actualizar el progreso si es necesario
                     print("Progreso actualizado: \(updatedBook.book.progress * 100)%")
                     
-                    // Enviar notificación para actualizar el progreso
                     NotificationCenter.default.post(
                         name: Notification.Name("BookProgressUpdated"),
                         object: nil,
@@ -230,6 +263,78 @@ struct CollectionDetailView: View {
     }
 }
 
+// Delegado para manejar el drop
+struct DropViewDelegate: DropDelegate {
+    let item: CompleteBook
+    let collection: Collection
+    let viewModel: CollectionsViewModel
+    @Binding var isDragging: Bool
+    
+    func performDrop(info: DropInfo) -> Bool {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isDragging = false
+        }
+        
+        guard let itemProvider = info.itemProviders(for: [.text]).first else { 
+            isDragging = false
+            return false 
+        }
+        
+        itemProvider.loadObject(ofClass: NSString.self) { string, _ in
+            guard let fromIndex = Int(string as? String ?? "") else { 
+                DispatchQueue.main.async {
+                    isDragging = false
+                }
+                return 
+            }
+            let books = viewModel.booksInCollection(collection)
+            guard let toIndex = books.firstIndex(where: { $0.id == item.id }) else { 
+                DispatchQueue.main.async {
+                    isDragging = false
+                }
+                return 
+            }
+            
+            DispatchQueue.main.async {
+                var updatedBooks = books
+                let fromItem = updatedBooks[fromIndex]
+                updatedBooks.remove(at: fromIndex)
+                updatedBooks.insert(fromItem, at: toIndex)
+                viewModel.updateBooksOrder(in: collection, books: updatedBooks)
+                
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isDragging = false
+                }
+            }
+        }
+        return true
+    }
+    
+    func dropEntered(info: DropInfo) {
+        guard let fromIndex = Int(info.itemProviders(for: [.text]).first?.registeredTypeIdentifiers.first ?? "") else { return }
+        let books = viewModel.booksInCollection(collection)
+        guard let toIndex = books.firstIndex(where: { $0.id == item.id }) else { return }
+        
+        if books[fromIndex].id != books[toIndex].id {
+            var updatedBooks = books
+            let fromItem = updatedBooks[fromIndex]
+            updatedBooks.remove(at: fromIndex)
+            updatedBooks.insert(fromItem, at: toIndex)
+            viewModel.updateBooksOrder(in: collection, books: updatedBooks)
+        }
+    }
+    
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        return DropProposal(operation: .move)
+    }
+    
+    func dropExited(info: DropInfo) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            isDragging = false
+        }
+    }
+}
+
 // Vista previa
 struct CollectionRowView_Previews: PreviewProvider {
     static var previews: some View {
@@ -244,7 +349,7 @@ struct CollectionRowView_Previews: PreviewProvider {
             )
         }
         
-        return CollectionRowView(collection: sampleCollection, books: sampleBooks)
+        return CollectionRowView(collection: sampleCollection, viewModel: CollectionsViewModel())
             .previewLayout(.sizeThatFits)
             .padding()
     }
