@@ -190,7 +190,7 @@ struct SettingsView: View {
                         .padding(.horizontal, 24)
                     }
                     
-                    Spacer(minLength: 100) // Space for the tab bar
+                    Spacer(minLength: 100) // Aumentado de 90 a 100 para la barra de navegación más alta
                 }
                 .padding(.vertical, 20)
             }

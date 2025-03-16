@@ -870,7 +870,7 @@ struct HomeView: View {
                         }
                     }
 
-                    Spacer(minLength: 100) // Espacio para la barra de navegación
+                    Spacer(minLength: 100) // Aumentado de 90 a 100 para la barra de navegación más alta
                 }
             }
             .coordinateSpace(name: "scroll")
@@ -937,12 +937,12 @@ struct HomeView: View {
                     // Barra de búsqueda
                     SearchBarView(text: $viewModel.searchText, isSearching: $viewModel.isSearching)
                         .padding(.horizontal, 16)
-                        .padding(.bottom, 4)
+                        .padding(.bottom, 8)
 
                     // Selector de categorías (oculto durante la búsqueda)
                     if !viewModel.isSearching {
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 16) {
+                            HStack(spacing: 10) {
                                 ForEach(HomeViewModel.BookCategory.allCases) { category in
                                     CategoryButton(
                                         category: category,
@@ -953,7 +953,7 @@ struct HomeView: View {
                             }
                             .padding(.horizontal, 24)
                         }
-                        .padding(.vertical, 8)
+                        .frame(height: 36)
                         .padding(.bottom, 8)
                     }
                 }
@@ -1029,11 +1029,15 @@ struct CategoryButton: View {
     var body: some View {
         Button(action: action) {
             Text(category.rawValue)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(isSelected ? Color.blue : Color(.systemGray5))
+                .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(isSelected ? Color.blue.opacity(0.9) : Color(.systemGray6))
+                        .shadow(color: isSelected ? Color.blue.opacity(0.3) : Color.clear, radius: 2, x: 0, y: 1)
+                )
                 .foregroundColor(isSelected ? .white : .primary)
-                .cornerRadius(8)
         }
     }
 }

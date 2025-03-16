@@ -6,20 +6,28 @@ struct CustomTabBar: View {
     @Binding var selectedTab: Tab
 
     var body: some View {
-        HStack {
-            Spacer()
-            // Home Tab Button
-            TabBarButton(tab: .home, selectedTab: $selectedTab, imageName: "house.fill", text: "Inicio")
-            Spacer()
-            // Settings Tab Button
-            TabBarButton(tab: .settings, selectedTab: $selectedTab, imageName: "gear", text: "Ajustes")
-            Spacer()
+        VStack(spacing: 0) {
+            // Línea separadora
+            Divider()
+                .background(Color.gray.opacity(0.3))
+            
+            // Contenido de la barra
+            HStack {
+                Spacer()
+                // Home Tab Button
+                TabBarButton(tab: .home, selectedTab: $selectedTab, imageName: "house.fill", text: "Inicio")
+                Spacer()
+                // Settings Tab Button
+                TabBarButton(tab: .settings, selectedTab: $selectedTab, imageName: "gear", text: "Ajustes")
+                Spacer()
+            }
+            .padding(.top, 6)
+            .padding(.bottom, 30)
         }
-        .padding(.bottom, 4)
-        .frame(height: 60) // Ajusta la altura según sea necesario
         .background(
             Material.ultraThinMaterial
         )
+        .frame(height: 85)
     }
 }
 
@@ -30,17 +38,17 @@ struct TabBarButton: View {
     let text: String
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
             Image(systemName: imageName)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 26, height: 26) // Aumenté el tamaño de los iconos
+                .frame(width: 26, height: 26)
                 .foregroundColor(selectedTab == tab ? .blue : .gray)
             Text(text)
-                .font(.system(size: 12)) // Aumenté el tamaño del texto
+                .font(.system(size: 13))
                 .foregroundColor(selectedTab == tab ? .blue : .gray)
         }
-        .frame(height: 44)
+        .frame(height: 42)
         .onTapGesture {
             selectedTab = tab
         }

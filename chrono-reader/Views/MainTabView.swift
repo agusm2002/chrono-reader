@@ -25,9 +25,10 @@ struct MainTabView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity) // Asegura que el contenido llene la pantalla
 
             // Custom Tab Bar
-            CustomTabBar(selectedTab: $selectedTab) // Usamos el nuevo CustomTabBar
-                .ignoresSafeArea(.all)
+            CustomTabBar(selectedTab: $selectedTab)
+                .padding(.bottom, 0)
         }
+        .edgesIgnoringSafeArea(.bottom) // Ignorar el safe area inferior para que la barra esté en el borde
     }
 }
 

@@ -37,13 +37,8 @@ struct Book: Identifiable, Codable {
     // Sample data for preview
     static let samples = [
         Book(title: "The Great Gatsby", author: "F. Scott Fitzgerald", coverImage: "book1", type: .epub, progress: 0.75, lastReadDate: Date()),
-        Book(title: "1984", author: "George Orwell", coverImage: "book2", type: .epub, progress: 0.3, lastReadDate: Date().addingTimeInterval(-86400)),
         Book(title: "Spider-Man: No Way Home", author: "Marvel Comics", coverImage: "comic1", type: .cbz, progress: 0.5, lastReadDate: Date().addingTimeInterval(-172800)),
-        Book(title: "Batman: The Dark Knight", author: "DC Comics", coverImage: "comic2", type: .cbr, progress: 0.2, lastReadDate: Date().addingTimeInterval(-259200)),
-        Book(title: "Design Patterns", author: "Erich Gamma", coverImage: "book3", type: .pdf, progress: 0.1, lastReadDate: Date().addingTimeInterval(-345600)),
-        Book(title: "The Avengers", author: "Marvel Comics", coverImage: "comic3", type: .cbz, progress: 0.9, lastReadDate: Date().addingTimeInterval(-432000)),
-        Book(title: "To Kill a Mockingbird", author: "Harper Lee", coverImage: "book4", type: .epub, progress: 0.0, lastReadDate: nil),
-        Book(title: "Superman: Man of Steel", author: "DC Comics", coverImage: "comic4", type: .cbr, progress: 0.6, lastReadDate: Date().addingTimeInterval(-518400))
+        Book(title: "Batman: The Dark Knight", author: "DC Comics", coverImage: "comic2", type: .cbr, progress: 0.2, lastReadDate: Date().addingTimeInterval(-259200))
     ]
 }
 
