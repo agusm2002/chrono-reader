@@ -28,6 +28,7 @@ struct MainTabView: View {
             CustomTabBar(selectedTab: $selectedTab)
                 .padding(.bottom, 0)
         }
+        .background(Color(.systemBackground))
         .edgesIgnoringSafeArea(.bottom) // Ignorar el safe area inferior para que la barra esté en el borde
     }
 }

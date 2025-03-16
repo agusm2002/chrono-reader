@@ -22,6 +22,7 @@ class HomeViewModel: ObservableObject {
     @Published var isImporting: Bool = false
     @Published var newBookURL: URL?
     @Published var gridLayout: Int = 0 // 0: Default, 1: List, 2: Large
+    @Published var isHeaderCompact: Bool = false // Variable para controlar si el encabezado está compacto
     
     @AppStorage("books") private var storedBooksData: Data? // Persistencia con AppStorage
     
@@ -779,7 +780,7 @@ struct HomeView: View {
             // Content
             ScrollView {
                 // Spacer transparente para empujar el contenido debajo del header fijo
-                Color.clear.frame(height: viewModel.isSearching ? 110 : 150) // Ajuste dinámico del height
+                Color.clear.frame(height: viewModel.isHeaderCompact ? 60 : (viewModel.isSearching ? 110 : 150)) // Ajuste dinámico del height
 
                 // Contenido principal
                 VStack(alignment: .leading, spacing: 24) {
@@ -908,32 +909,46 @@ struct HomeView: View {
 
             // Header fijo
             VStack(spacing: 0) {
-                // Top header (fondo con blur)
-                BlurredHeader()
+                // Espacio para la barra de estado
+                Color.clear
                     .frame(height: 50)
+                
+                // Título de la biblioteca
+                HStack {
+                    Text("Biblioteca")
+                        .font(.system(size: 25, weight: .bold))
+                        .padding(.horizontal, 24)
+                        .padding(.top, 8)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    // Título de la biblioteca
-                    HStack {
-                        Text("Biblioteca")
-                            .font(.system(size: 25, weight: .bold))
-                            .padding(.horizontal, 24)
-                            .padding(.top, 8)
-
-                        Spacer()
-
-                        // Botón de importación
-                        Button(action: {
-                            viewModel.isImporting = true
-                        }) {
-                            Image(systemName: "plus")
-                                .font(.title2)
-                                .foregroundColor(.primary)
-                                .padding(.trailing, 24)
-                                .padding(.top, 8)
+                    Spacer()
+                    
+                    // Botón para compactar/expandir el encabezado
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            viewModel.isHeaderCompact.toggle()
                         }
+                    }) {
+                        Image(systemName: viewModel.isHeaderCompact ? "eye" : "eye.slash")
+                            .font(.title2)
+                            .foregroundColor(.primary)
+                            .padding(.trailing, 8)
+                            .padding(.top, 8)
                     }
 
+                    // Botón de importación
+                    Button(action: {
+                        viewModel.isImporting = true
+                    }) {
+                        Image(systemName: "plus")
+                            .font(.title2)
+                            .foregroundColor(.primary)
+                            .padding(.trailing, 24)
+                            .padding(.top, 8)
+                    }
+                }
+
+                // Barra de búsqueda y categorías (visibles solo cuando el encabezado no está compacto)
+                if !viewModel.isHeaderCompact {
                     // Barra de búsqueda
                     SearchBarView(text: $viewModel.searchText, isSearching: $viewModel.isSearching)
                         .padding(.horizontal, 16)
@@ -951,17 +966,17 @@ struct HomeView: View {
                                     )
                                 }
                             }
-                            .padding(.horizontal, 24)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
                         }
-                        .frame(height: 36)
-                        .padding(.bottom, 8)
                     }
                 }
-                .background(Material.ultraThinMaterial)
             }
-            .background(Color.clear)
+            .background(Material.ultraThinMaterial)
+            .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
             .ignoresSafeArea(edges: .top)
         }
+        .background(Color(.systemBackground))
     }
 }
 
