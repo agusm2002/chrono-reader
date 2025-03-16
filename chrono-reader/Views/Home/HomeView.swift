@@ -20,7 +20,6 @@ class HomeViewModel: ObservableObject {
     @Published var isSearching = false
     @Published var selectedCategory: BookCategory = .all
     @Published var isImporting: Bool = false
-    @Published var newBookURL: URL?
     @Published var gridLayout: Int = 0 // 0: Default, 1: List, 2: Large
     @Published var isHeaderCompact: Bool = false // Variable para controlar si el encabezado está compacto
     
@@ -892,35 +891,28 @@ struct HomeView: View {
                 }
             }
             .coordinateSpace(name: "scroll")
-            .onChange(of: viewModel.newBookURL) { url in
-                if let url = url {
-                    // Procesar el nuevo archivo seleccionado y agregarlo a la lista de libros
-                    viewModel.processImportedFile(url: url)
-                    viewModel.newBookURL = nil // Resetear la URL después de procesar
-                }
-            }
             .fileImporter(
                 isPresented: $viewModel.isImporting,
                 allowedContentTypes: [UTType.pdf, UTType.epub, UTType.init(filenameExtension: "cbr")!, UTType.init(filenameExtension: "cbz")!],
-                allowsMultipleSelection: false
+                allowsMultipleSelection: true
             ) { result in
                 switch result {
                 case .success(let urls):
-                    // Tomar la primera URL seleccionada
-                    if let url = urls.first {
-                        // Solicitar acceso de seguridad para el archivo
+                    // Procesar todas las URLs seleccionadas
+                    for url in urls {
+                        // Solicitar acceso de seguridad para cada archivo
                         if url.startAccessingSecurityScopedResource() {
                             // Asegurarse de que se libere el acceso cuando terminemos
                             defer { url.stopAccessingSecurityScopedResource() }
                             
-                            // Procesar el archivo
-                            viewModel.newBookURL = url
+                            // Procesar el archivo directamente
+                            viewModel.processImportedFile(url: url)
                         } else {
                             print("No se pudo acceder al archivo de manera segura: \(url.path)")
                         }
                     }
                 case .failure(let error):
-                    print("Error al importar archivo: \(error)")
+                    print("Error al importar archivos: \(error)")
                 }
             }
 

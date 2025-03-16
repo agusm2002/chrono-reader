@@ -218,31 +218,3 @@ struct BookItemView: View {
         }
     }
 }
-
-// Definición de ProgressBar (si no está definida en otro archivo accesible)
-struct ProgressBar: View {
-    var value: Double
-    var height: CGFloat = 4
-    
-    // Identificador único para forzar la actualización
-    private let id = UUID()
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                Rectangle()
-                    .frame(width: geometry.size.width)
-                    .opacity(0.15)
-                    .foregroundColor(.primary)
-
-                Rectangle()
-                    .frame(width: min(CGFloat(value) * geometry.size.width, geometry.size.width))
-                    .foregroundColor(.blue)
-                    .animation(.easeInOut, value: value)
-            }
-        }
-        .frame(height: height)
-        .cornerRadius(height/2)
-        .id("\(id)-\(value)")
-    }
-}
