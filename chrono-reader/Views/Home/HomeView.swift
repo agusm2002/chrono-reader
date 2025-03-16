@@ -702,6 +702,23 @@ class HomeViewModel: ObservableObject {
         }
     }
 
+    // Función para borrar todos los libros y cargar los de muestra
+    func resetToSampleBooks() {
+        // Borrar todos los libros
+        books.removeAll()
+        
+        // Borrar los datos guardados
+        storedBooksData = nil
+        
+        // Cargar los libros de muestra
+        loadSampleBooks()
+        
+        // Guardar los cambios
+        saveBooks()
+        
+        print("Biblioteca reiniciada con libros de muestra")
+    }
+
     // Función para actualizar el progreso de un libro
     func updateBookProgress(_ updatedBook: CompleteBook) {
         print("Actualizando progreso para libro: \(updatedBook.book.title)")
@@ -780,7 +797,7 @@ struct HomeView: View {
             // Content
             ScrollView {
                 // Spacer transparente para empujar el contenido debajo del header fijo
-                Color.clear.frame(height: viewModel.isHeaderCompact ? 70 : (viewModel.isSearching ? 110 : 160)) // Ajuste dinámico del height para el título más grande
+                Color.clear.frame(height: viewModel.isHeaderCompact ? 70 : (viewModel.isSearching ? 130 : 185)) // Ajuste para los nuevos márgenes
 
                 // Contenido principal
                 VStack(alignment: .leading, spacing: 24) {
@@ -946,14 +963,15 @@ struct HomeView: View {
                             .padding(.top, 8)
                     }
                 }
-                .padding(.bottom, viewModel.isHeaderCompact ? 8 : 0) // Agregar margen inferior cuando está compacto
+                .padding(.bottom, viewModel.isHeaderCompact ? 8 : 10) // Margen inferior reducido para mejor equilibrio
 
                 // Barra de búsqueda y categorías (visibles solo cuando el encabezado no está compacto)
                 if !viewModel.isHeaderCompact {
                     // Barra de búsqueda
                     SearchBarView(text: $viewModel.searchText, isSearching: $viewModel.isSearching)
                         .padding(.horizontal, 16)
-                        .padding(.bottom, 8)
+                        .padding(.top, 8)
+                        .padding(.bottom, 12)
 
                     // Selector de categorías (oculto durante la búsqueda)
                     if !viewModel.isSearching {
@@ -991,11 +1009,12 @@ struct SearchBarView: View {
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.gray)
-                    .padding(.leading, 8)
+                    .padding(.leading, 10)
+                    .font(.system(size: 16))
 
                 TextField("Buscar libros o cómics...", text: $text)
-                    .padding(.vertical, 8)
-                    .font(.system(size: 14))
+                    .padding(.vertical, 10)
+                    .font(.system(size: 16))
                     .focused($isFocused)
                     .onChange(of: isFocused) { newValue in
                         isSearching = newValue || !text.isEmpty
@@ -1010,14 +1029,15 @@ struct SearchBarView: View {
                     }) {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.gray)
-                            .padding(.trailing, 8)
+                            .padding(.trailing, 10)
+                            .font(.system(size: 16))
                     }
                 }
             }
             .background(Color(.systemGray6))
-            .cornerRadius(8)
+            .cornerRadius(10)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 10)
                     .stroke(Color.gray.opacity(0.3), lineWidth: 0.5)
             )
 
@@ -1028,11 +1048,12 @@ struct SearchBarView: View {
                     isSearching = false
                 }
                 .padding(.leading, 8)
+                .font(.system(size: 16))
                 .transition(.move(edge: .trailing))
                 .animation(.default, value: isSearching)
             }
         }
-        .frame(height: 36)
+        .frame(height: 44)
     }
 }
 

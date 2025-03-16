@@ -36,9 +36,9 @@ struct Book: Identifiable, Codable {
 
     // Sample data for preview
     static let samples = [
-        Book(title: "The Great Gatsby", author: "F. Scott Fitzgerald", coverImage: "book1", type: .epub, progress: 0.75, lastReadDate: Date()),
-        Book(title: "Spider-Man: No Way Home", author: "Marvel Comics", coverImage: "comic1", type: .cbz, progress: 0.5, lastReadDate: Date().addingTimeInterval(-172800)),
-        Book(title: "Batman: The Dark Knight", author: "DC Comics", coverImage: "comic2", type: .cbr, progress: 0.2, lastReadDate: Date().addingTimeInterval(-259200))
+        Book(title: "El Principito", author: "Antoine de Saint-Exupéry", coverImage: "book1", type: .epub, progress: 0.0, lastReadDate: nil),
+        Book(title: "Batman: Year One", author: "Frank Miller", coverImage: "comic2", type: .cbr, progress: 0.0, lastReadDate: nil),
+        Book(title: "Spider-Man: Miles Morales", author: "Marvel Comics", coverImage: "comic1", type: .cbz, progress: 0.0, lastReadDate: nil)
     ]
 }
 
