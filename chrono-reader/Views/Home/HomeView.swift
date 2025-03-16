@@ -780,7 +780,7 @@ struct HomeView: View {
             // Content
             ScrollView {
                 // Spacer transparente para empujar el contenido debajo del header fijo
-                Color.clear.frame(height: viewModel.isHeaderCompact ? 60 : (viewModel.isSearching ? 110 : 150)) // Ajuste dinámico del height
+                Color.clear.frame(height: viewModel.isHeaderCompact ? 70 : (viewModel.isSearching ? 110 : 160)) // Ajuste dinámico del height para el título más grande
 
                 // Contenido principal
                 VStack(alignment: .leading, spacing: 24) {
@@ -916,7 +916,7 @@ struct HomeView: View {
                 // Título de la biblioteca
                 HStack {
                     Text("Biblioteca")
-                        .font(.system(size: 25, weight: .bold))
+                        .font(.system(size: 32, weight: .bold))
                         .padding(.horizontal, 24)
                         .padding(.top, 8)
 
@@ -928,7 +928,7 @@ struct HomeView: View {
                             viewModel.isHeaderCompact.toggle()
                         }
                     }) {
-                        Image(systemName: viewModel.isHeaderCompact ? "eye" : "eye.slash")
+                        Image(systemName: viewModel.isHeaderCompact ? "chevron.down" : "chevron.up")
                             .font(.title2)
                             .foregroundColor(.primary)
                             .padding(.trailing, 8)
@@ -946,6 +946,7 @@ struct HomeView: View {
                             .padding(.top, 8)
                     }
                 }
+                .padding(.bottom, viewModel.isHeaderCompact ? 8 : 0) // Agregar margen inferior cuando está compacto
 
                 // Barra de búsqueda y categorías (visibles solo cuando el encabezado no está compacto)
                 if !viewModel.isHeaderCompact {
