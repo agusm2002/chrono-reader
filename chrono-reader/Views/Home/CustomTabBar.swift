@@ -17,6 +17,9 @@ struct CustomTabBar: View {
                 // Home Tab Button
                 TabBarButton(tab: .home, selectedTab: $selectedTab, imageName: "house.fill", text: "Inicio")
                 Spacer()
+                // Collections Tab Button
+                TabBarButton(tab: .collections, selectedTab: $selectedTab, imageName: "books.vertical.fill", text: "Colecciones")
+                Spacer()
                 // Settings Tab Button
                 TabBarButton(tab: .settings, selectedTab: $selectedTab, imageName: "gear", text: "Ajustes")
                 Spacer()

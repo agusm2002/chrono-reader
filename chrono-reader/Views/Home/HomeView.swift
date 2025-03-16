@@ -959,6 +959,29 @@ struct HomeView: View {
                         Image(systemName: "plus")
                             .font(.title2)
                             .foregroundColor(.primary)
+                            .padding(.trailing, 8)
+                            .padding(.top, 8)
+                    }
+                    
+                    // Botón para reiniciar la biblioteca
+                    Button(action: {
+                        // Mostrar alerta de confirmación
+                        let alert = UIAlertController(title: "Reiniciar biblioteca", message: "¿Estás seguro de que quieres borrar todos los libros y cargar solo los de muestra?", preferredStyle: .alert)
+                        
+                        alert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
+                        alert.addAction(UIAlertAction(title: "Reiniciar", style: .destructive) { _ in
+                            viewModel.resetToSampleBooks()
+                        })
+                        
+                        // Presentar la alerta
+                        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                           let rootViewController = windowScene.windows.first?.rootViewController {
+                            rootViewController.present(alert, animated: true)
+                        }
+                    }) {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.title2)
+                            .foregroundColor(.primary)
                             .padding(.trailing, 24)
                             .padding(.top, 8)
                     }

@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 enum Tab {
     case home
+    case collections
     case settings
 }
 
@@ -18,6 +19,8 @@ struct MainTabView: View {
                 switch selectedTab {
                 case .home:
                     HomeView()
+                case .collections:
+                    CollectionsView()
                 case .settings:
                     SettingsView()
                 }
