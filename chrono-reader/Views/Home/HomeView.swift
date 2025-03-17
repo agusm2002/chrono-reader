@@ -23,6 +23,7 @@ class HomeViewModel: ObservableObject {
     @Published var isProcessingFiles: Bool = false // Nueva variable para controlar el estado de carga
     @Published var gridLayout: Int = 0 // 0: Default, 1: List, 2: Large
     @Published var isHeaderCompact: Bool = false // Variable para controlar si el encabezado está compacto
+    @Published var collectionsViewModel = CollectionsViewModel() // Agregamos el ViewModel de colecciones
     
     @AppStorage("books") private var storedBooksData: Data? // Persistencia con AppStorage
     
@@ -53,6 +54,13 @@ class HomeViewModel: ObservableObject {
                 print("Error: No se pudo obtener el libro de la notificación")
             }
         }
+
+        // Notificar al CollectionsViewModel cuando los libros se actualicen
+        $books
+            .sink { [weak self] _ in
+                NotificationCenter.default.post(name: Notification.Name("BooksUpdated"), object: nil)
+            }
+            .store(in: &cancellables)
     }
     
     deinit {
@@ -775,6 +783,8 @@ class HomeViewModel: ObservableObject {
             }
         }
     }
+
+    private var cancellables = Set<AnyCancellable>()
 }
 
 struct HomeView: View {
@@ -788,31 +798,75 @@ struct HomeView: View {
                     // Content
                     ScrollView {
                         // Spacer transparente para empujar el contenido debajo del header fijo
-                        Color.clear.frame(height: viewModel.isHeaderCompact ? 70 : (viewModel.isSearching ? 130 : 185)) // Ajuste para los nuevos márgenes
+                        Color.clear.frame(height: viewModel.isHeaderCompact ? 70 : (viewModel.isSearching ? 130 : 185))
 
                         // Contenido principal
                         VStack(alignment: .leading, spacing: 24) {
                             // Sección de "Continuar leyendo" (si hay libros en progreso)
-                            if !viewModel.isSearching {
-                                if !viewModel.booksInProgress.isEmpty {
-                                    VStack(alignment: .leading, spacing: 16) {
-                                        HeaderGradientText("Continuar leyendo", fontSize: 20)
-                                            .padding(.horizontal, 24)
+                            if !viewModel.isSearching && !viewModel.booksInProgress.isEmpty {
+                                VStack(alignment: .leading, spacing: 16) {
+                                    HeaderGradientText("Continuar leyendo", fontSize: 20)
+                                        .padding(.horizontal, 24)
 
-                                        ScrollView(.horizontal, showsIndicators: false) {
-                                            HStack(spacing: 16) {
-                                                ForEach(viewModel.booksInProgress) { book in
-                                                    BookItemView(book: book, onDelete: {
-                                                        viewModel.deleteBook(book: book)
-                                                    })
-                                                    .frame(width: 150)
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 16) {
+                                            ForEach(viewModel.booksInProgress) { book in
+                                                BookItemView(book: book, onDelete: {
+                                                    viewModel.deleteBook(book: book)
+                                                })
+                                                .frame(width: 150)
+                                            }
+                                        }
+                                        .padding(.horizontal, 24)
+                                    }
+                                }
+                                .padding(.bottom)
+                            }
+
+                            // Sección de "Tus colecciones" (si hay colecciones)
+                            if !viewModel.isSearching && !viewModel.collectionsViewModel.collections.isEmpty {
+                                VStack(alignment: .leading, spacing: 16) {
+                                    HeaderGradientText("Tus colecciones", fontSize: 20)
+                                        .padding(.horizontal, 24)
+
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 20) {
+                                            ForEach(viewModel.collectionsViewModel.collections) { collection in
+                                                NavigationLink(destination: CollectionDetailView(collection: collection, viewModel: viewModel.collectionsViewModel)) {
+                                                    VStack(alignment: .leading, spacing: 0) {
+                                                        StackedCoversView(books: viewModel.collectionsViewModel.booksInCollection(collection))
+                                                            .padding(.top, 12)
+                                                            .padding(.horizontal, 10)
+                                                        
+                                                        VStack(alignment: .leading, spacing: 4) {
+                                                            Text(collection.name)
+                                                                .font(.headline)
+                                                                .foregroundColor(.primary)
+                                                            
+                                                            let booksCount = viewModel.collectionsViewModel.booksInCollection(collection).count
+                                                            Text("\(booksCount) \(booksCount == 1 ? "libro" : "libros")")
+                                                                .font(.subheadline)
+                                                                .foregroundColor(.secondary)
+                                                        }
+                                                        .padding(12)
+                                                        .frame(maxWidth: .infinity)
+                                                        .background(Material.ultraThinMaterial)
+                                                    }
+                                                    .frame(width: 220)
+                                                    .background(
+                                                        RoundedRectangle(cornerRadius: 16)
+                                                            .fill(collection.color.opacity(0.15))
+                                                    )
+                                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                                                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
                                                 }
                                             }
-                                            .padding(.horizontal, 24)
                                         }
+                                        .padding(.horizontal, 24)
+                                        .padding(.vertical, 8)
                                     }
-                                    .padding(.bottom)
                                 }
+                                .padding(.bottom)
                             }
 
                             // Sección de "Todos los libros"
