@@ -5,6 +5,7 @@ struct BookItemView: View {
     let book: CompleteBook
     var displayMode: DisplayMode = .grid
     var onDelete: (() -> Void)?
+    var onToggleFavorite: (() -> Void)?
     @State private var isShowingDeleteMenu = false
     @State private var isShowingComicViewer = false
     @State private var animateTransition = false
@@ -15,19 +16,18 @@ struct BookItemView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // Portada con overlays
             ZStack(alignment: .bottom) {
-                // Container principal
                 bookCover
                     .overlay(gradientOverlay)
                     .overlay(progressPercentageOverlay, alignment: .bottomTrailing)
-                    .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+                    .overlay(favoriteIndicator, alignment: .topTrailing)
                     .onTapGesture {
                         if book.book.type == .cbz || book.book.type == .cbr {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 animateTransition = true
                             }
                             
-                            // Pequeño retraso para permitir que la animación comience
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                 print("Abriendo cómic: \(book.book.title) con progreso: \(book.book.progress * 100)%")
                                 isShowingComicViewer = true
@@ -36,15 +36,6 @@ struct BookItemView: View {
                     }
                     .scaleEffect(animateTransition ? 1.05 : 1.0)
                     .brightness(animateTransition ? 0.1 : 0)
-
-                // Barra de progreso principal
-                if displayMode != .list {
-                    ProgressBar(value: book.book.progress)
-                        .frame(height: 3)
-                        .padding(.horizontal, 4)
-                        .padding(.bottom, 1)
-                        .id("progressbar-\(book.id)-\(book.book.progress)")
-                }
             }
             .aspectRatio(0.68, contentMode: .fit)
             .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -52,33 +43,37 @@ struct BookItemView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .stroke(Color.black.opacity(0.1), lineWidth: 0.5)
             )
+            .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
             .onLongPressGesture {
                 isShowingDeleteMenu = true
             }
             .contextMenu {
+                Button(action: {
+                    onToggleFavorite?()
+                }) {
+                    Label(book.book.isFavorite ? "Quitar de favoritos" : "Añadir a favoritos", 
+                          systemImage: book.book.isFavorite ? "star.fill" : "star")
+                }
+                
                 Button(action: {
                     onDelete?()
                 }) {
                     Label("Eliminar", systemImage: "trash")
                 }
             }
-            .fullScreenCover(isPresented: $isShowingComicViewer, onDismiss: {
-                // Resetear la animación cuando se cierra el visor
-                withAnimation {
-                    animateTransition = false
-                }
-            }) {
-                EnhancedComicViewer(book: book, onProgressUpdate: { updatedBook in
-                    print("BookItemView recibió actualización de progreso: \(updatedBook.book.progress * 100)%")
+            
+            // Barra de progreso standalone, debajo de la portada
+            if book.book.progress > 0 && displayMode != .list {
+                HStack {
+                    ProgressBar(value: book.book.progress, height: 6, color: .blue)
+                        .frame(height: 6)
                     
-                    // Enviar notificación directamente para actualizar el progreso
-                    NotificationCenter.default.post(
-                        name: Notification.Name("BookProgressUpdated"),
-                        object: nil,
-                        userInfo: ["book": updatedBook]
-                    )
-                })
-                .transition(.opacity)
+                    Text("\(Int(book.book.progress * 100))%")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.blue)
+                }
+                .padding(.horizontal, 2)
+                .id(book.book.progress)
             }
 
             if displayMode != .large {
@@ -86,6 +81,22 @@ struct BookItemView: View {
             }
         }
         .padding(.vertical, 4)
+        .fullScreenCover(isPresented: $isShowingComicViewer, onDismiss: {
+            withAnimation {
+                animateTransition = false
+            }
+        }) {
+            EnhancedComicViewer(book: book, onProgressUpdate: { updatedBook in
+                print("BookItemView recibió actualización de progreso: \(updatedBook.book.progress * 100)%")
+                
+                NotificationCenter.default.post(
+                    name: Notification.Name("BookProgressUpdated"),
+                    object: nil,
+                    userInfo: ["book": updatedBook]
+                )
+            })
+            .transition(.opacity)
+        }
         .alert(isPresented: $isShowingDeleteMenu) {
             Alert(
                 title: Text("Eliminar libro"),
@@ -137,15 +148,6 @@ struct BookItemView: View {
         Group {
             if book.book.progress > 0 && displayMode != .list {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(Int(book.book.progress * 100))%")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.black.opacity(0.6))
-                        .cornerRadius(4)
-                        .id("progress-\(book.id)-\(book.book.progress)")
-                    
                     if let lastReadDate = book.book.lastReadDate {
                         Text(formatLastReadDate(lastReadDate))
                             .font(.system(size: 8, weight: .medium))
@@ -240,6 +242,17 @@ struct BookItemView: View {
         case .epub: return Color(red: 0.3, green: 0.6, blue: 0.9)
         case .pdf: return Color(red: 0.9, green: 0.3, blue: 0.3)
         case .cbr, .cbz: return Color(red: 0.7, green: 0.4, blue: 0.9)
+        }
+    }
+
+    private var favoriteIndicator: some View {
+        Group {
+            if book.book.isFavorite {
+                Image(systemName: "star.fill")
+                    .foregroundColor(.yellow)
+                    .padding(8)
+                    .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+            }
         }
     }
 }

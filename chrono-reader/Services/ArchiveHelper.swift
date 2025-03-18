@@ -41,6 +41,8 @@ class ArchiveHelper {
             return ZipController()
         case .cbr:
             return RarController()
+        case .epub:
+            return EpubController()
         default:
             fatalError("Tipo de archivo no soportado: \(type)")
         }
@@ -49,6 +51,13 @@ class ArchiveHelper {
     // Método para cargar todas las imágenes de un archivo
     static func loadImages(from url: URL, type: BookType) -> [UIImage] {
         print("ArchiveHelper: Cargando imágenes de \(url.path) (tipo: \(type.rawValue))")
+        
+        // Para tipos de archivo no soportados por el visor de cómics
+        if type == .epub || type == .pdf {
+            print("ArchiveHelper: Tipo de archivo no soportado para visor de cómics: \(type.rawValue)")
+            return []
+        }
+        
         let controller = getController(for: type)
         
         do {

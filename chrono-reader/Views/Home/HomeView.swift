@@ -32,12 +32,16 @@ class HomeViewModel: ObservableObject {
         case books = "Libros"
         case comics = "Comics"
         case recent = "Recientes"
+        case favorites = "Favoritos"
 
         var id: String { self.rawValue }
     }
     
     init() {
         loadBooks()
+        
+        // Asegurarse de que el CollectionsViewModel tenga los libros actualizados
+        collectionsViewModel.loadAvailableBooks()
         
         // Registrar observador para actualizaciones de progreso
         NotificationCenter.default.addObserver(
@@ -89,6 +93,8 @@ class HomeViewModel: ObservableObject {
                 guard let date2 = $1.book.lastReadDate else { return true }
                 return date1 > date2
             }
+        case .favorites:
+            return filtered.filter { $0.book.isFavorite }
         }
     }
 
@@ -149,6 +155,8 @@ class HomeViewModel: ObservableObject {
             switch fileExtension {
             case "cbz", "cbr":
                 processComicBookFile(url: destinationURL, type: (fileExtension == "cbz" ? .cbz : .cbr))
+            case "epub":
+                processEpubFile(url: destinationURL)
             default:
                 // Para otros tipos de archivo, crearemos un nuevo Book con información básica
                 // Limpiar el nombre del archivo eliminando el prefijo UUID
@@ -181,6 +189,8 @@ class HomeViewModel: ObservableObject {
                 switch fileExtension {
                 case "cbz", "cbr":
                     processComicBookFile(url: destinationURL, type: (fileExtension == "cbz" ? .cbz : .cbr))
+                case "epub":
+                    processEpubFile(url: destinationURL)
                 default:
                     // Limpiar el nombre del archivo eliminando el prefijo UUID
                     let originalFileName = destinationURL.lastPathComponent
@@ -466,6 +476,9 @@ class HomeViewModel: ObservableObject {
                 print("Libro guardado: \(book.book.title) - Progreso: \(book.book.progress * 100)%")
             }
             
+            // Notificar cambios en los libros para que se actualicen las colecciones
+            NotificationCenter.default.post(name: Notification.Name("BooksUpdated"), object: nil)
+            
             // Forzar la actualización de la vista
             objectWillChange.send()
         } catch {
@@ -510,18 +523,49 @@ class HomeViewModel: ObservableObject {
         
         print("Verificando y reparando rutas de archivos...")
         
+        // Primero, regenerar todas las portadas de EPUBs
+        print("Regenerando portadas de EPUBs...")
+        for (index, book) in books.enumerated() {
+            if book.book.type == .epub, 
+               let url = book.metadata.localURL, 
+               fileManager.fileExists(atPath: url.path) {
+                print("Regenerando portada para: \(book.book.title)")
+                
+                if let coverImage = extractCoverFromFile(url: url, type: .epub) {
+                    // Crear una nueva instancia con la portada regenerada
+                    let updatedBook = CompleteBook(
+                        id: book.id,
+                        title: book.book.title,
+                        author: book.book.author,
+                        coverImage: book.book.coverImage,
+                        type: book.book.type,
+                        progress: book.book.progress,
+                        localURL: book.metadata.localURL,
+                        cover: coverImage,
+                        lastReadDate: book.book.lastReadDate
+                    )
+                    books[index] = updatedBook
+                    needsSaving = true
+                    print("Portada regenerada para \(book.book.title)")
+                } else {
+                    print("No se pudo regenerar la portada para \(book.book.title)")
+                }
+            }
+        }
+        
+        // Luego, verificar y reparar las rutas de archivos
         for (index, book) in books.enumerated() {
             // Verificar si la portada existe
             if let coverPath = book.metadata.coverPath {
                 if !fileManager.fileExists(atPath: coverPath) {
                     print("Portada no encontrada para \(book.book.title): \(coverPath)")
                     
-                    // Intentar regenerar la portada si es un cómic
-                    if (book.book.type == .cbz || book.book.type == .cbr), 
+                    // Intentar regenerar la portada si es un cómic o EPUB
+                    if (book.book.type == .cbz || book.book.type == .cbr || book.book.type == .epub), 
                        let url = book.metadata.localURL, 
                        fileManager.fileExists(atPath: url.path) {
                         print("Intentando regenerar portada desde: \(url.path)")
-                        if let coverImage = extractCoverFromComic(url: url, type: book.book.type) {
+                        if let coverImage = extractCoverFromFile(url: url, type: book.book.type) {
                             // Crear una nueva instancia con la portada regenerada
                             let updatedBook = CompleteBook(
                                 id: book.id,
@@ -531,7 +575,8 @@ class HomeViewModel: ObservableObject {
                                 type: book.book.type,
                                 progress: book.book.progress,
                                 localURL: book.metadata.localURL,
-                                cover: coverImage
+                                cover: coverImage,
+                                lastReadDate: book.book.lastReadDate
                             )
                             books[index] = updatedBook
                             needsSaving = true
@@ -547,11 +592,11 @@ class HomeViewModel: ObservableObject {
                 print("No hay ruta de portada para \(book.book.title)")
                 
                 // Intentar generar una portada si no existe
-                if (book.book.type == .cbz || book.book.type == .cbr), 
+                if (book.book.type == .cbz || book.book.type == .cbr || book.book.type == .epub), 
                    let url = book.metadata.localURL, 
                    fileManager.fileExists(atPath: url.path) {
                     print("Intentando generar portada desde: \(url.path)")
-                    if let coverImage = extractCoverFromComic(url: url, type: book.book.type) {
+                    if let coverImage = extractCoverFromFile(url: url, type: book.book.type) {
                         // Crear una nueva instancia con la portada generada
                         let updatedBook = CompleteBook(
                             id: book.id,
@@ -561,7 +606,8 @@ class HomeViewModel: ObservableObject {
                             type: book.book.type,
                             progress: book.book.progress,
                             localURL: book.metadata.localURL,
-                            cover: coverImage
+                            cover: coverImage,
+                            lastReadDate: book.book.lastReadDate
                         )
                         books[index] = updatedBook
                         needsSaving = true
@@ -621,11 +667,31 @@ class HomeViewModel: ObservableObject {
         }
     }
     
+    // Función para extraer la portada de un archivo (cómic o EPUB)
+    func extractCoverFromFile(url: URL, type: BookType) -> UIImage? {
+        print("Extrayendo portada de: \(url.path)")
+        
+        switch type {
+        case .cbz, .cbr:
+            return extractCoverFromComic(url: url, type: type)
+        case .epub:
+            do {
+                let controller = EpubController()
+                return try controller.getThumbnailImage(for: url)
+            } catch {
+                print("Error al extraer la portada del EPUB: \(error)")
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
+    
     // Función para extraer la portada de un cómic
     func extractCoverFromComic(url: URL, type: BookType) -> UIImage? {
         guard type == .cbz || type == .cbr else { return nil }
         
-        print("Extrayendo portada de: \(url.path)")
+        print("Extrayendo portada de cómic: \(url.path)")
         
         // Limpiar el nombre del archivo eliminando el prefijo UUID
         let originalFileName = url.lastPathComponent
@@ -704,6 +770,16 @@ class HomeViewModel: ObservableObject {
     func deleteBook(book: CompleteBook) {
         if let index = books.firstIndex(where: { $0.id == book.id }) {
             books.remove(at: index)
+            
+            // Eliminar el libro de todas las colecciones que lo contengan
+            for collection in collectionsViewModel.collections {
+                if collection.books.contains(book.id) {
+                    collectionsViewModel.removeBookFromCollection(collection, bookID: book.id)
+                }
+            }
+            
+            // Guardar cambios
+            saveBooks()
         }
     }
 
@@ -759,15 +835,19 @@ class HomeViewModel: ObservableObject {
                 progress: updatedBook.book.progress,
                 localURL: updatedBook.metadata.localURL,
                 cover: updatedBook.getCoverImage() ?? existingBook.getCoverImage(),
-                lastReadDate: updatedBook.book.lastReadDate
+                lastReadDate: updatedBook.book.lastReadDate,
+                lastPageOffsetPCT: updatedBook.lastPageOffsetPCT,
+                isFavorite: updatedBook.book.isFavorite
             )
             
             // Actualizar el libro en la colección
             books[index] = combinedBook
             
-            // Guardar los cambios inmediatamente
+            // Guardar los cambios inmediatamente y notificar la actualización UI
             DispatchQueue.main.async {
                 self.saveBooks()
+                // Forzar actualización de la UI
+                self.objectWillChange.send()
                 print("Progreso actualizado y guardado para \(combinedBook.book.title): \(combinedBook.book.progress * 100)%")
                 print("Número de páginas actualizado: \(updatedBook.book.pageCount ?? 0)")
             }
@@ -776,11 +856,70 @@ class HomeViewModel: ObservableObject {
             // Si el libro no existe en la colección, añadirlo
             books.append(updatedBook)
             
-            // Guardar los cambios inmediatamente
+            // Guardar los cambios inmediatamente y notificar la actualización UI
             DispatchQueue.main.async {
                 self.saveBooks()
+                // Forzar actualización de la UI
+                self.objectWillChange.send()
                 print("Nuevo libro añadido y guardado: \(updatedBook.book.title)")
             }
+        }
+    }
+
+    // Función para procesar un archivo EPUB
+    func processEpubFile(url: URL) {
+        print("Procesando EPUB: \(url.lastPathComponent)")
+        
+        var coverImage: UIImage?
+        var author: String = "Desconocido"
+        
+        // Limpiar el nombre del archivo eliminando el prefijo UUID
+        let originalFileName = url.lastPathComponent
+        let cleanFileName = originalFileName.replacingOccurrences(
+            of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-",
+            with: "",
+            options: .regularExpression
+        )
+        
+        // Eliminar la extensión del archivo
+        let fileNameWithoutExtension = cleanFileName.replacingOccurrences(
+            of: "\\.epub$",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        
+        var title: String = fileNameWithoutExtension
+        
+        // Intentar extraer la portada usando el controlador de EPUB
+        do {
+            let controller = EpubController()
+            coverImage = try controller.getThumbnailImage(for: url)
+            print("Portada de EPUB extraída correctamente")
+        } catch {
+            print("Error al extraer la portada del EPUB: \(error)")
+        }
+        
+        // Crear un nuevo libro con los metadatos extraídos
+        let newBook = CompleteBook(
+            title: title,
+            author: author,
+            coverImage: "",
+            type: .epub,
+            progress: 0.0,
+            localURL: url,
+            cover: coverImage
+        )
+        
+        addBook(newBook)
+        saveBooks() // Guardar inmediatamente después de añadir
+    }
+
+    // Función para actualizar el estado de favorito de un libro
+    func toggleFavorite(book: CompleteBook) {
+        if let index = books.firstIndex(where: { $0.id == book.id }) {
+            let updatedBook = book.withUpdatedFavorite(!book.book.isFavorite)
+            books[index] = updatedBook
+            saveBooks()
         }
     }
 
@@ -803,7 +942,7 @@ struct HomeView: View {
                         // Contenido principal
                         VStack(alignment: .leading, spacing: 24) {
                             // Sección de "Continuar leyendo" (si hay libros en progreso)
-                            if !viewModel.isSearching && !viewModel.booksInProgress.isEmpty {
+                            if !viewModel.isSearching && !viewModel.booksInProgress.isEmpty && viewModel.selectedCategory == .all {
                                 VStack(alignment: .leading, spacing: 16) {
                                     HeaderGradientText("Continuar leyendo", fontSize: 20)
                                         .padding(.horizontal, 24)
@@ -813,6 +952,8 @@ struct HomeView: View {
                                             ForEach(viewModel.booksInProgress) { book in
                                                 BookItemView(book: book, onDelete: {
                                                     viewModel.deleteBook(book: book)
+                                                }, onToggleFavorite: {
+                                                    viewModel.toggleFavorite(book: book)
                                                 })
                                                 .frame(width: 150)
                                             }
@@ -824,7 +965,7 @@ struct HomeView: View {
                             }
 
                             // Sección de "Tus colecciones" (si hay colecciones)
-                            if !viewModel.isSearching && !viewModel.collectionsViewModel.collections.isEmpty {
+                            if !viewModel.isSearching && !viewModel.collectionsViewModel.collections.isEmpty && viewModel.selectedCategory == .all {
                                 VStack(alignment: .leading, spacing: 16) {
                                     HeaderGradientText("Tus colecciones", fontSize: 20)
                                         .padding(.horizontal, 24)
@@ -924,10 +1065,65 @@ struct HomeView: View {
                                     }
                                     .frame(maxWidth: .infinity)
                                     .padding(.top, 40)
+                                } else if viewModel.books.isEmpty {
+                                    // Estado vacío - Ningún libro importado
+                                    VStack(spacing: 24) {
+                                        ZStack {
+                                            Circle()
+                                                .fill(Color.blue.opacity(0.1))
+                                                .frame(width: 150, height: 150)
+                                            
+                                            VStack(spacing: 10) {
+                                                Image(systemName: "books.vertical")
+                                                    .font(.system(size: 50))
+                                                    .foregroundColor(.blue)
+                                                
+                                                Image(systemName: "arrow.down.circle.fill")
+                                                    .font(.system(size: 30))
+                                                    .foregroundColor(.blue)
+                                                    .offset(y: -5)
+                                            }
+                                        }
+                                        .padding(.bottom, 10)
+                                        
+                                        Text("Tu biblioteca está vacía")
+                                            .font(.title2)
+                                            .fontWeight(.bold)
+                                            .multilineTextAlignment(.center)
+                                        
+                                        Text("Importa tus libros y cómics favoritos\npara comenzar a disfrutar de la lectura")
+                                            .font(.body)
+                                            .foregroundColor(.secondary)
+                                            .multilineTextAlignment(.center)
+                                            .padding(.horizontal, 40)
+                                        
+                                        Button(action: {
+                                            // Mostrar el selector de archivos
+                                            viewModel.isImporting = true
+                                        }) {
+                                            HStack(spacing: 10) {
+                                                Image(systemName: "plus.circle.fill")
+                                                    .font(.headline)
+                                                Text("Importar libros")
+                                                    .font(.headline)
+                                            }
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 24)
+                                            .padding(.vertical, 12)
+                                            .background(Color.blue)
+                                            .cornerRadius(10)
+                                        }
+                                        .buttonStyle(ScaleButtonStyle())
+                                        .padding(.top, 16)
+                                    }
+                                    .padding(40)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 } else {
                                     // Grid con todos los libros filtrados
                                     BookGridUpdatedView(books: viewModel.filteredBooks, gridLayout: viewModel.gridLayout, onDelete: { book in
                                         viewModel.deleteBook(book: book)
+                                    }, onToggleFavorite: { book in
+                                        viewModel.toggleFavorite(book: book)
                                     })
                                         .padding(.horizontal, 8)
                                 }
@@ -1017,20 +1213,43 @@ struct HomeView: View {
                             // Botón para reiniciar la biblioteca
                             Button(action: {
                                 // Mostrar alerta de confirmación
-                                let alert = UIAlertController(title: "Reiniciar biblioteca", message: "¿Estás seguro de que quieres borrar todos los libros y cargar solo los de muestra?", preferredStyle: .alert)
+                                let alert = UIAlertController(title: "Opciones de biblioteca", message: nil, preferredStyle: .actionSheet)
                                 
-                                alert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
-                                alert.addAction(UIAlertAction(title: "Reiniciar", style: .destructive) { _ in
-                                    viewModel.resetToSampleBooks()
+                                alert.addAction(UIAlertAction(title: "Verificar y reparar archivos", style: .default) { _ in
+                                    viewModel.verifyAndRepairBookPaths()
                                 })
                                 
-                                // Presentar la alerta
+                                alert.addAction(UIAlertAction(title: "Reiniciar biblioteca", style: .destructive) { _ in
+                                    // Mostrar alerta de confirmación para reiniciar
+                                    let confirmAlert = UIAlertController(title: "Reiniciar biblioteca", message: "¿Estás seguro de que quieres borrar todos los libros y cargar solo los de muestra?", preferredStyle: .alert)
+                                    
+                                    confirmAlert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
+                                    confirmAlert.addAction(UIAlertAction(title: "Reiniciar", style: .destructive) { _ in
+                                        viewModel.resetToSampleBooks()
+                                    })
+                                    
+                                    // Presentar la alerta de confirmación
+                                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                                       let rootViewController = windowScene.windows.first?.rootViewController {
+                                        rootViewController.present(confirmAlert, animated: true)
+                                    }
+                                })
+                                
+                                alert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
+                                
+                                // Presentar el menú de opciones
                                 if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
                                    let rootViewController = windowScene.windows.first?.rootViewController {
+                                    if let popoverController = alert.popoverPresentationController {
+                                        // Para iPad, necesitamos especificar el origen del popover
+                                        popoverController.sourceView = rootViewController.view
+                                        popoverController.sourceRect = CGRect(x: rootViewController.view.bounds.midX, y: rootViewController.view.bounds.midY, width: 0, height: 0)
+                                        popoverController.permittedArrowDirections = []
+                                    }
                                     rootViewController.present(alert, animated: true)
                                 }
                             }) {
-                                Image(systemName: "arrow.counterclockwise")
+                                Image(systemName: "ellipsis.circle")
                                     .font(.title2)
                                     .foregroundColor(.primary)
                                     .padding(.trailing, 24)
@@ -1067,6 +1286,13 @@ struct HomeView: View {
                     }
                     .background(Material.ultraThinMaterial)
                     .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
+                    .overlay(
+                        Rectangle()
+                            .frame(height: 0.5)
+                            .foregroundColor(Color.gray.opacity(0.3))
+                            .offset(y: 1),
+                        alignment: .bottom
+                    )
                     .ignoresSafeArea(edges: .top)
                 }
             }
@@ -1233,3 +1459,12 @@ class ComicInfoHandler: NSObject, XMLParserDelegate {
     }
 }
 
+// Estilo de botón con efecto de escala al pulsar
+struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .opacity(configuration.isPressed ? 0.9 : 1)
+            .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
+    }
+}

@@ -6,6 +6,7 @@ struct CollectionsView: View {
     @StateObject private var viewModel = CollectionsViewModel()
     @State private var isDragging = false
     @State private var draggedItemIndex: Int?
+    @State private var dragCancellationTask: DispatchWorkItem?
     
     var body: some View {
         NavigationView {
@@ -32,9 +33,15 @@ struct CollectionsView: View {
                                         }
                                     )
                                     .opacity(isDragging && draggedItemIndex != index ? 0.7 : 1.0)
+                                    .scaleEffect(isDragging && draggedItemIndex == index ? 1.03 : 1.0)
+                                    .zIndex(isDragging && draggedItemIndex == index ? 1 : 0)
+                                    .shadow(color: isDragging && draggedItemIndex == index ? Color.black.opacity(0.2) : Color.clear, 
+                                            radius: 5, x: 0, y: 3)
+                                    .contentShape(Rectangle())
                                     .onDrag {
-                                        draggedItemIndex = index
-                                        isDragging = true
+                                        self.draggedItemIndex = index
+                                        self.isDragging = true
+                                        // Usamos un formato simple para el identificador
                                         return NSItemProvider(object: "\(index)" as NSString)
                                     }
                                     .onDrop(of: [.text], delegate: CollectionDropDelegate(
@@ -44,6 +51,17 @@ struct CollectionsView: View {
                                         isDragging: $isDragging,
                                         draggedItemIndex: $draggedItemIndex
                                     ))
+                                    .onChange(of: isDragging) { newValue in
+                                        // Si se detiene el arrastre, programamos una tarea para limpiar el estado
+                                        if !newValue {
+                                            dragCancellationTask?.cancel()
+                                            let task = DispatchWorkItem {
+                                                draggedItemIndex = nil
+                                            }
+                                            dragCancellationTask = task
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
+                                        }
+                                    }
                                 }
                             }
                             .padding(.horizontal, 16)
@@ -128,25 +146,32 @@ struct CollectionDropDelegate: DropDelegate {
     @Binding var draggedItemIndex: Int?
     
     func performDrop(info: DropInfo) -> Bool {
-        guard let fromIndex = draggedItemIndex else { return false }
+        guard let draggedItemIndex = self.draggedItemIndex else { 
+            return false 
+        }
         
-        withAnimation(.easeInOut(duration: 0.2)) {
-            viewModel.updateCollectionsOrder(from: fromIndex, to: currentIndex)
-            isDragging = false
-            draggedItemIndex = nil
+        if draggedItemIndex != currentIndex {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                viewModel.updateCollectionsOrder(from: draggedItemIndex, to: currentIndex)
+            }
+        }
+        
+        // Limpiar el estado
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                self.isDragging = false
+            }
+            // Retrasamos la limpieza del índice para evitar saltos visuales
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.draggedItemIndex = nil
+            }
         }
         
         return true
     }
     
     func dropEntered(info: DropInfo) {
-        guard let fromIndex = draggedItemIndex,
-              fromIndex != currentIndex else { return }
-        
-        withAnimation(.easeInOut(duration: 0.2)) {
-            viewModel.updateCollectionsOrder(from: fromIndex, to: currentIndex)
-            draggedItemIndex = currentIndex
-        }
+        // No hacemos cambios reales hasta que el drop se complete
     }
     
     func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -154,11 +179,11 @@ struct CollectionDropDelegate: DropDelegate {
     }
     
     func dropExited(info: DropInfo) {
-        // No reseteamos isDragging aquí para evitar parpadeos durante el arrastre
+        // No hacemos nada aquí para mantener estado consistente
     }
     
     func validateDrop(info: DropInfo) -> Bool {
-        return draggedItemIndex != nil
+        return draggedItemIndex != nil && draggedItemIndex != currentIndex
     }
 }
 

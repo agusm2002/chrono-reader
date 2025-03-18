@@ -4,6 +4,7 @@ struct BookGridUpdatedView: View {
     let books: [CompleteBook]
     var gridLayout: Int
     var onDelete: ((CompleteBook) -> Void)? // Closure opcional para eliminar
+    var onToggleFavorite: ((CompleteBook) -> Void)? // Closure opcional para toggle favorito
     
     var body: some View {
         Group {
@@ -21,8 +22,12 @@ struct BookGridUpdatedView: View {
         
         return LazyVGrid(columns: columns, spacing: 24) {
             ForEach(books) { book in
-                BookItemView(book: book, displayMode: .grid, onDelete: {
+                BookItemView(book: book, displayMode: .grid, 
+                             onDelete: {
                     onDelete?(book)
+                },
+                             onToggleFavorite: {
+                    onToggleFavorite?(book)
                 })
             }
         }
@@ -34,8 +39,12 @@ struct BookGridUpdatedView: View {
             LazyVStack(spacing: 16) {
                 ForEach(books) { book in
                     HStack(spacing: 12) {
-                        BookItemView(book: book, displayMode: .list, onDelete: {
+                        BookItemView(book: book, displayMode: .list, 
+                                     onDelete: {
                             onDelete?(book)
+                        },
+                                     onToggleFavorite: {
+                            onToggleFavorite?(book)
                         })
                         .frame(width: 80)
                         
@@ -82,8 +91,12 @@ struct BookGridUpdatedView: View {
         return LazyVGrid(columns: columns, spacing: 24) {
             ForEach(books) { book in
                 VStack(alignment: .leading, spacing: 12) {
-                    BookItemView(book: book, displayMode: .large, onDelete: {
+                    BookItemView(book: book, displayMode: .large, 
+                                 onDelete: {
                         onDelete?(book)
+                    },
+                                 onToggleFavorite: {
+                        onToggleFavorite?(book)
                     })
                     
                     VStack(alignment: .leading, spacing: 4) {

@@ -18,6 +18,7 @@ struct Book: Identifiable, Codable {
     let type: BookType
     var progress: Double // 0.0 to 1.0
     var lastReadDate: Date? // Fecha de última lectura
+    var isFavorite: Bool = false // Nuevo campo para marcar como favorito
 
     // Metadata
     var isbn: String?
@@ -58,9 +59,9 @@ struct CompleteBook: Identifiable, Codable, Equatable {
     let metadata: BookMetadata
     let lastPageOffsetPCT: Double?
 
-    init(id: UUID = UUID(), title: String, author: String, coverImage: String, type: BookType, progress: Double, localURL: URL? = nil, cover: UIImage? = nil, lastReadDate: Date? = nil, lastPageOffsetPCT: Double? = nil) {
+    init(id: UUID = UUID(), title: String, author: String, coverImage: String, type: BookType, progress: Double, localURL: URL? = nil, cover: UIImage? = nil, lastReadDate: Date? = nil, lastPageOffsetPCT: Double? = nil, isFavorite: Bool = false) {
         self.id = id
-        self.book = Book(title: title, author: author, coverImage: coverImage, type: type, progress: progress, lastReadDate: lastReadDate)
+        self.book = Book(title: title, author: author, coverImage: coverImage, type: type, progress: progress, lastReadDate: lastReadDate, isFavorite: isFavorite)
         self.lastPageOffsetPCT = lastPageOffsetPCT
         
         if let cover = cover {
@@ -123,7 +124,8 @@ struct CompleteBook: Identifiable, Codable, Equatable {
             localURL: metadata.localURL,
             cover: cover,
             lastReadDate: book.lastReadDate,
-            lastPageOffsetPCT: lastPageOffsetPCT
+            lastPageOffsetPCT: lastPageOffsetPCT,
+            isFavorite: book.isFavorite
         )
     }
     
@@ -146,7 +148,28 @@ struct CompleteBook: Identifiable, Codable, Equatable {
             localURL: metadata.localURL,
             cover: getCoverImage(), // Mantener la portada existente
             lastReadDate: bookCopy.lastReadDate,
-            lastPageOffsetPCT: lastPageOffsetPCT
+            lastPageOffsetPCT: lastPageOffsetPCT,
+            isFavorite: bookCopy.isFavorite
+        )
+    }
+    
+    // Método para actualizar el estado de favorito
+    func withUpdatedFavorite(_ isFavorite: Bool) -> CompleteBook {
+        var bookCopy = book
+        bookCopy.isFavorite = isFavorite
+        
+        return CompleteBook(
+            id: id,
+            title: bookCopy.title,
+            author: bookCopy.author,
+            coverImage: bookCopy.coverImage,
+            type: bookCopy.type,
+            progress: bookCopy.progress,
+            localURL: metadata.localURL,
+            cover: getCoverImage(),
+            lastReadDate: bookCopy.lastReadDate,
+            lastPageOffsetPCT: lastPageOffsetPCT,
+            isFavorite: isFavorite
         )
     }
     

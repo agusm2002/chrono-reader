@@ -125,6 +125,8 @@ struct CollectionDetailView: View {
     @State private var showingComicViewer = false
     @State private var animateTransition = false
     @State private var isDragging = false
+    @State private var draggedBookIndex: Int? = nil
+    @State private var dragCancellationTask: DispatchWorkItem?
     
     var books: [CompleteBook] {
         viewModel.booksInCollection(collection)
@@ -147,6 +149,21 @@ struct CollectionDetailView: View {
                     }
                     
                     Spacer()
+                    
+                    // Indicador de reordenamiento
+                    if books.count > 1 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                                .font(.system(size: 12))
+                            Text("Arrastra para reordenar")
+                                .font(.caption)
+                        }
+                        .foregroundColor(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color(.systemGray6))
+                        .cornerRadius(16)
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
@@ -176,19 +193,54 @@ struct CollectionDetailView: View {
                                         print("Abrir libro: \(book.book.title)")
                                     }
                                 }
-                                .scaleEffect(animateTransition && selectedBook?.id == book.id ? 1.05 : 1.0)
                                 .brightness(animateTransition && selectedBook?.id == book.id ? 0.1 : 0)
+                                .opacity(isDragging ? (books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? 1.0 : 0.6) : 1.0)
+                                .scaleEffect(isDragging && books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? 1.05 : 1.0)
+                                .shadow(color: isDragging && books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? Color.black.opacity(0.3) : Color.clear, radius: 6, x: 0, y: 3)
+                                .overlay(
+                                    ZStack {
+                                        if isDragging {
+                                            if books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex {
+                                                // Estilo para el elemento que se está arrastrando
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .stroke(collection.color, lineWidth: 3)
+                                                
+                                                // Icono de mover
+                                                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                                                    .font(.system(size: 20, weight: .bold))
+                                                    .foregroundColor(.white)
+                                                    .padding(8)
+                                                    .background(collection.color)
+                                                    .clipShape(Circle())
+                                                    .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
+                                            } else {
+                                                // Indicador de destino potencial
+                                                RoundedRectangle(cornerRadius: 8)
+                                                    .stroke(Color.gray.opacity(0.5), style: StrokeStyle(lineWidth: 2, dash: [5]))
+                                            }
+                                        }
+                                    }
+                                )
+                                .contentShape(Rectangle())
                                 .onDrag {
-                                    // Guardar el índice del libro que se está arrastrando
                                     if let index = books.firstIndex(where: { $0.id == book.id }) {
-                                        withAnimation {
+                                        print("Iniciando arrastre de libro: \(book.book.title) [índice: \(index)]")
+                                        withAnimation(.easeIn(duration: 0.2)) {
                                             isDragging = true
+                                            draggedBookIndex = index
                                         }
                                         return NSItemProvider(object: "\(index)" as NSString)
                                     }
                                     return NSItemProvider()
                                 }
-                                .onDrop(of: [.text], delegate: DropViewDelegate(item: book, collection: collection, viewModel: viewModel, isDragging: $isDragging))
+                                .onDrop(of: [.text], delegate: BookDropDelegate(
+                                    book: book,
+                                    collection: collection,
+                                    viewModel: viewModel,
+                                    isDragging: $isDragging,
+                                    draggedBookIndex: $draggedBookIndex,
+                                    books: books
+                                ))
                             
                             // Información del libro
                             VStack(alignment: .leading, spacing: 4) {
@@ -225,20 +277,46 @@ struct CollectionDetailView: View {
         }
         .navigationTitle(collection.name)
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: isDragging) { newValue in
+            if !newValue {
+                // Si termina el arrastre y no se procesó correctamente en el drop
+                // programamos una limpieza del estado
+                dragCancellationTask?.cancel()
+                let task = DispatchWorkItem {
+                    // Limpiar el estado completamente
+                    draggedBookIndex = nil
+                    print("Arrastre de libros cancelado/completado - estado limpiado")
+                }
+                dragCancellationTask = task
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: task)
+            }
+        }
         .fullScreenCover(isPresented: $showingComicViewer, onDismiss: {
             withAnimation {
                 animateTransition = false
             }
+            
+            // Actualizar la vista para mostrar el progreso actualizado
+            viewModel.objectWillChange.send()
         }) {
             if let book = selectedBook {
                 EnhancedComicViewer(book: book, onProgressUpdate: { updatedBook in
-                    print("Progreso actualizado: \(updatedBook.book.progress * 100)%")
+                    print("Progreso actualizado desde colección: \(updatedBook.book.progress * 100)%")
                     
-                    NotificationCenter.default.post(
-                        name: Notification.Name("BookProgressUpdated"),
-                        object: nil,
-                        userInfo: ["book": updatedBook]
-                    )
+                    // 1. Actualizar en el modelo de colecciones
+                    viewModel.updateBookProgress(updatedBook)
+                    
+                    // 2. Enviar también la notificación directa al HomeViewModel
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("BookProgressUpdated"),
+                            object: nil,
+                            userInfo: ["book": updatedBook]
+                        )
+                    }
+                    
+                    // 3. Forzar actualización de la vista de colección
+                    viewModel.objectWillChange.send()
                 })
             }
         }
@@ -263,65 +341,79 @@ struct CollectionDetailView: View {
     }
 }
 
-// Delegado para manejar el drop
-struct DropViewDelegate: DropDelegate {
-    let item: CompleteBook
+// Delegado para manejar el drop de libros
+struct BookDropDelegate: DropDelegate {
+    let book: CompleteBook
     let collection: Collection
     let viewModel: CollectionsViewModel
     @Binding var isDragging: Bool
+    @Binding var draggedBookIndex: Int?
+    let books: [CompleteBook]
     
     func performDrop(info: DropInfo) -> Bool {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            isDragging = false
-        }
-        
-        guard let itemProvider = info.itemProviders(for: [.text]).first else { 
-            isDragging = false
-            return false 
-        }
-        
-        itemProvider.loadObject(ofClass: NSString.self) { string, _ in
-            guard let fromIndex = Int(string as? String ?? "") else { 
-                DispatchQueue.main.async {
-                    isDragging = false
-                }
-                return 
-            }
-            let books = viewModel.booksInCollection(collection)
-            guard let toIndex = books.firstIndex(where: { $0.id == item.id }) else { 
-                DispatchQueue.main.async {
-                    isDragging = false
-                }
-                return 
-            }
+        // Verificar que tenemos índices válidos para realizar el cambio
+        guard let draggedIndex = draggedBookIndex,
+              draggedIndex < books.count,
+              let targetIndex = books.firstIndex(where: { $0.id == book.id }) else {
             
+            // Limpiar estado si no hay cambios válidos
             DispatchQueue.main.async {
-                var updatedBooks = books
-                let fromItem = updatedBooks[fromIndex]
-                updatedBooks.remove(at: fromIndex)
-                updatedBooks.insert(fromItem, at: toIndex)
-                viewModel.updateBooksOrder(in: collection, books: updatedBooks)
-                
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isDragging = false
                 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    draggedBookIndex = nil
+                }
+            }
+            print("Drop cancelado: índices inválidos")
+            return false
+        }
+        
+        // Si los índices son iguales, no hay nada que hacer
+        if draggedIndex == targetIndex {
+            DispatchQueue.main.async {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isDragging = false
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    draggedBookIndex = nil
+                }
+            }
+            print("Drop cancelado: mismo índice")
+            return false
+        }
+        
+        print("Realizando drop: moviendo libro de posición \(draggedIndex) a \(targetIndex)")
+        
+        DispatchQueue.main.async {
+            // Crear una copia de los libros actuales y reordenarlos
+            var updatedBooks = books
+            let draggedBook = updatedBooks[draggedIndex]
+            updatedBooks.remove(at: draggedIndex)
+            updatedBooks.insert(draggedBook, at: targetIndex)
+            
+            print("Libros reordenados, actualizando colección: \(collection.name)")
+            for (i, book) in updatedBooks.enumerated() {
+                print("[\(i)] - \(book.book.title)")
+            }
+            
+            // Actualizar el orden en el modelo
+            viewModel.updateBooksOrder(in: collection, books: updatedBooks)
+            
+            // Limpiar estado
+            withAnimation(.easeOut(duration: 0.2)) {
+                isDragging = false
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                draggedBookIndex = nil
             }
         }
+        
         return true
     }
     
     func dropEntered(info: DropInfo) {
-        guard let fromIndex = Int(info.itemProviders(for: [.text]).first?.registeredTypeIdentifiers.first ?? "") else { return }
-        let books = viewModel.booksInCollection(collection)
-        guard let toIndex = books.firstIndex(where: { $0.id == item.id }) else { return }
-        
-        if books[fromIndex].id != books[toIndex].id {
-            var updatedBooks = books
-            let fromItem = updatedBooks[fromIndex]
-            updatedBooks.remove(at: fromIndex)
-            updatedBooks.insert(fromItem, at: toIndex)
-            viewModel.updateBooksOrder(in: collection, books: updatedBooks)
-        }
+        // No realizamos actualizaciones en tiempo real para evitar parpadeos
     }
     
     func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -329,9 +421,16 @@ struct DropViewDelegate: DropDelegate {
     }
     
     func dropExited(info: DropInfo) {
-        withAnimation(.easeInOut(duration: 0.2)) {
-            isDragging = false
+        // No hacemos nada para evitar parpadeos
+    }
+    
+    func validateDrop(info: DropInfo) -> Bool {
+        guard let draggedIndex = draggedBookIndex,
+              draggedIndex < books.count,
+              let targetIndex = books.firstIndex(where: { $0.id == book.id }) else {
+            return false
         }
+        return true
     }
 }
 
