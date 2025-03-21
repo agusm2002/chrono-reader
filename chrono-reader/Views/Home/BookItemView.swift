@@ -8,6 +8,7 @@ struct BookItemView: View {
     var onToggleFavorite: (() -> Void)?
     @State private var isShowingDeleteMenu = false
     @State private var isShowingComicViewer = false
+    @State private var isShowingEPUBViewer = false
     @State private var animateTransition = false
 
     enum DisplayMode {
@@ -23,14 +24,22 @@ struct BookItemView: View {
                     .overlay(progressPercentageOverlay, alignment: .bottomTrailing)
                     .overlay(favoriteIndicator, alignment: .topTrailing)
                     .onTapGesture {
-                        if book.book.type == .cbz || book.book.type == .cbr {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                animateTransition = true
-                            }
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            animateTransition = true
+                        }
+                        
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            print("Abriendo libro: \(book.book.title) con progreso: \(book.book.progress * 100)%")
                             
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                print("Abriendo cómic: \(book.book.title) con progreso: \(book.book.progress * 100)%")
+                            // Determinar qué visor abrir basado en el tipo de libro
+                            switch book.book.type {
+                            case .cbz, .cbr:
                                 isShowingComicViewer = true
+                            case .epub:
+                                isShowingEPUBViewer = true
+                            default:
+                                // Otros tipos de libros
+                                break
                             }
                         }
                     }
@@ -81,6 +90,7 @@ struct BookItemView: View {
             }
         }
         .padding(.vertical, 4)
+        // Comic Viewer
         .fullScreenCover(isPresented: $isShowingComicViewer, onDismiss: {
             withAnimation {
                 animateTransition = false
@@ -96,6 +106,15 @@ struct BookItemView: View {
                 )
             })
             .transition(.opacity)
+        }
+        // EPUB Viewer
+        .fullScreenCover(isPresented: $isShowingEPUBViewer, onDismiss: {
+            withAnimation {
+                animateTransition = false
+            }
+        }) {
+            EPUBViewerView(book: book)
+                .transition(.opacity)
         }
         .alert(isPresented: $isShowingDeleteMenu) {
             Alert(
