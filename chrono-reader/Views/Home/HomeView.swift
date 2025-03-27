@@ -9,6 +9,9 @@ import XMLCoder
 import Combine
 import Unrar
 import Foundation
+import UIKit
+import CoreGraphics
+import BackgroundTasks
 
 // Definir alias para evitar ambigüedades
 typealias ZipArchive = ZIPFoundation.Archive
@@ -16,14 +19,20 @@ typealias RarArchive = Unrar.Archive
 
 class HomeViewModel: ObservableObject {
     @Published var books: [CompleteBook] = []
-    @Published var searchText = ""
-    @Published var isSearching = false
+    @Published var isLoading: Bool = false
+    @Published var searchText: String = ""
+    @Published var isSearching: Bool = false
     @Published var selectedCategory: BookCategory = .all
     @Published var isImporting: Bool = false
     @Published var isProcessingFiles: Bool = false // Nueva variable para controlar el estado de carga
     @Published var gridLayout: Int = 0 // 0: Default, 1: List, 2: Large
     @Published var isHeaderCompact: Bool = false // Variable para controlar si el encabezado está compacto
     @Published var collectionsViewModel = CollectionsViewModel() // Agregamos el ViewModel de colecciones
+    
+    // Toast notification state
+    @Published var showToast: Bool = false
+    @Published var toastMessage: String = ""
+    @Published var toastStyle: ToastStyle = .success
     
     @AppStorage("books") private var storedBooksData: Data? // Persistencia con AppStorage
     
@@ -112,6 +121,14 @@ class HomeViewModel: ObservableObject {
         print("Procesando archivo importado: \(url.path)")
         isProcessingFiles = true // Activar el indicador de carga
         
+        // Asegurarse de que el LoadingManager esté activo
+        if !LoadingManager.shared.isLoading {
+            DispatchQueue.main.async {
+                LoadingManager.shared.startLoading() // Activar la vista de carga global
+                print("🔄 Activando indicador de carga global")
+            }
+        }
+        
         // Primero, crear una copia permanente del archivo en el directorio de documentos de la app
         let fileManager = FileManager.default
         let documentsDirectory = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
@@ -141,7 +158,7 @@ class HomeViewModel: ObservableObject {
                     print("Archivo copiado correctamente a: \(destinationURL.path)")
                 } catch {
                     print("Error al leer/escribir el archivo: \(error)")
-                    isProcessingFiles = false // Desactivar el indicador de carga en caso de error
+                    // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
                     return
                 }
             } else {
@@ -173,10 +190,10 @@ class HomeViewModel: ObservableObject {
             
             // Guardar los cambios inmediatamente
             saveBooks()
-            isProcessingFiles = false // Desactivar el indicador de carga cuando se completa el proceso
+            // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
         } catch {
             print("Error al copiar el archivo: \(error)")
-            isProcessingFiles = false // Desactivar el indicador de carga en caso de error
+            // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
             
             // Intentar un método alternativo si el primero falla
             do {
@@ -206,10 +223,10 @@ class HomeViewModel: ObservableObject {
                 
                 // Guardar los cambios inmediatamente
                 saveBooks()
-                isProcessingFiles = false // Desactivar el indicador de carga cuando se completa el proceso
+                // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
             } catch {
                 print("Error en el método alternativo: \(error)")
-                isProcessingFiles = false // Desactivar el indicador de carga en caso de error
+                // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
             }
         }
     }
@@ -780,6 +797,17 @@ class HomeViewModel: ObservableObject {
             
             // Guardar cambios
             saveBooks()
+            
+            // Mostrar notificación toast
+            self.toastMessage = "Título eliminado correctamente"
+            self.toastStyle = .success
+            
+            // Usar withAnimation con un DispatchQueue para asegurar que se active el toast
+            DispatchQueue.main.async {
+                withAnimation(.spring()) {
+                    self.showToast = true
+                }
+            }
         }
     }
 
@@ -932,396 +960,469 @@ struct HomeView: View {
     
     var body: some View {
         ZStack {
-            NavigationView {
-                ZStack(alignment: .top) {
-                    // Content
-                    ScrollView {
-                        // Spacer transparente para empujar el contenido debajo del header fijo
-                        Color.clear.frame(height: viewModel.isHeaderCompact ? 70 : (viewModel.isSearching ? 130 : 185))
-
-                        // Contenido principal
-                        VStack(alignment: .leading, spacing: 24) {
-                            // Sección de "Continuar leyendo" (si hay libros en progreso)
-                            if !viewModel.isSearching && !viewModel.booksInProgress.isEmpty && viewModel.selectedCategory == .all {
-                                VStack(alignment: .leading, spacing: 16) {
-                                    HeaderGradientText("Continuar leyendo", fontSize: 20)
-                                        .padding(.horizontal, 24)
-
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 16) {
-                                            ForEach(viewModel.booksInProgress) { book in
-                                                BookItemView(book: book, onDelete: {
-                                                    viewModel.deleteBook(book: book)
-                                                }, onToggleFavorite: {
-                                                    viewModel.toggleFavorite(book: book)
-                                                })
-                                                .frame(width: 150)
-                                            }
-                                        }
-                                        .padding(.horizontal, 24)
-                                    }
-                                }
-                                .padding(.bottom)
-                            }
-
-                            // Sección de "Tus colecciones" (si hay colecciones)
-                            if !viewModel.isSearching && !viewModel.collectionsViewModel.collections.isEmpty && viewModel.selectedCategory == .all {
-                                VStack(alignment: .leading, spacing: 16) {
-                                    HeaderGradientText("Tus colecciones", fontSize: 20)
-                                        .padding(.horizontal, 24)
-
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 20) {
-                                            ForEach(viewModel.collectionsViewModel.collections) { collection in
-                                                NavigationLink(destination: CollectionDetailView(collection: collection, viewModel: viewModel.collectionsViewModel)) {
-                                                    VStack(alignment: .leading, spacing: 0) {
-                                                        StackedCoversView(books: viewModel.collectionsViewModel.booksInCollection(collection))
-                                                            .padding(.top, 12)
-                                                            .padding(.horizontal, 10)
-                                                        
-                                                        VStack(alignment: .leading, spacing: 4) {
-                                                            Text(collection.name)
-                                                                .font(.headline)
-                                                                .foregroundColor(.primary)
-                                                            
-                                                            let booksCount = viewModel.collectionsViewModel.booksInCollection(collection).count
-                                                            Text("\(booksCount) \(booksCount == 1 ? "libro" : "libros")")
-                                                                .font(.subheadline)
-                                                                .foregroundColor(.secondary)
-                                                        }
-                                                        .padding(12)
-                                                        .frame(maxWidth: .infinity)
-                                                        .background(Material.ultraThinMaterial)
-                                                    }
-                                                    .frame(width: 220)
-                                                    .background(
-                                                        RoundedRectangle(cornerRadius: 16)
-                                                            .fill(collection.color.opacity(0.15))
-                                                    )
-                                                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                                                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-                                                }
-                                            }
-                                        }
-                                        .padding(.horizontal, 24)
-                                        .padding(.vertical, 8)
-                                    }
-                                }
-                                .padding(.bottom)
-                            }
-
-                            // Sección de "Todos los libros"
-                            VStack(alignment: .leading, spacing: 16) {
-                                HStack {
-                                    HeaderGradientText(viewModel.isSearching ? "Resultados de búsqueda" : "Todos los \(viewModel.selectedCategory == .all ? "títulos" : viewModel.selectedCategory.rawValue)", fontSize: 20)
-                                        .padding(.horizontal, 24)
-
-                                    Spacer()
-
-                                    // Grid layout adjustment button
-                                    Button(action: {
-                                        withAnimation(.easeInOut(duration: 0.3)) {
-                                            viewModel.gridLayout = (viewModel.gridLayout + 1) % 3
-                                        }
-                                    }) {
-                                        switch viewModel.gridLayout {
-                                        case 0:
-                                            Image(systemName: "square.grid.2x2")
-                                                .font(.title2)
-                                                .foregroundColor(.primary)
-                                                .padding(.trailing, 24)
-                                        case 1:
-                                            Image(systemName: "list.bullet")
-                                                .font(.title2)
-                                                .foregroundColor(.primary)
-                                                .padding(.trailing, 24)
-                                        case 2:
-                                            Image(systemName: "square.grid.3x3")
-                                                .font(.title2)
-                                                .foregroundColor(.primary)
-                                                .padding(.trailing, 24)
-                                        default:
-                                            Image(systemName: "square.grid.2x2")
-                                                .font(.title2)
-                                                .foregroundColor(.primary)
-                                                .padding(.trailing, 24)
-                                        }
-                                    }
-                                }
-
-                                if viewModel.filteredBooks.isEmpty && !viewModel.searchText.isEmpty {
-                                    VStack(spacing: 16) {
-                                        Image(systemName: "magnifyingglass")
-                                            .font(.system(size: 40))
-                                            .foregroundColor(.gray)
-
-                                        Text("No se encontraron resultados para \"\(viewModel.searchText)\"")
-                                            .font(.headline)
-                                            .multilineTextAlignment(.center)
-                                        Text("Intenta con otros términos de búsqueda")
-                                            .font(.subheadline)
-                                            .foregroundColor(.secondary)
-                                            .multilineTextAlignment(.center)
-                                    }
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.top, 40)
-                                } else if viewModel.books.isEmpty {
-                                    // Estado vacío - Ningún libro importado
-                                    VStack(spacing: 24) {
-                                        ZStack {
-                                            Circle()
-                                                .fill(Color.blue.opacity(0.1))
-                                                .frame(width: 150, height: 150)
-                                            
-                                            VStack(spacing: 10) {
-                                                Image(systemName: "books.vertical")
-                                                    .font(.system(size: 50))
-                                                    .foregroundColor(.blue)
-                                                
-                                                Image(systemName: "arrow.down.circle.fill")
-                                                    .font(.system(size: 30))
-                                                    .foregroundColor(.blue)
-                                                    .offset(y: -5)
-                                            }
-                                        }
-                                        .padding(.bottom, 10)
-                                        
-                                        Text("Tu biblioteca está vacía")
-                                            .font(.title2)
-                                            .fontWeight(.bold)
-                                            .multilineTextAlignment(.center)
-                                        
-                                        Text("Importa tus libros y cómics favoritos\npara comenzar a disfrutar de la lectura")
-                                            .font(.body)
-                                            .foregroundColor(.secondary)
-                                            .multilineTextAlignment(.center)
-                                            .padding(.horizontal, 40)
-                                        
-                                        Button(action: {
-                                            // Mostrar el selector de archivos
-                                            viewModel.isImporting = true
-                                        }) {
-                                            HStack(spacing: 10) {
-                                                Image(systemName: "plus.circle.fill")
-                                                    .font(.headline)
-                                                Text("Importar libros")
-                                                    .font(.headline)
-                                            }
-                                            .foregroundColor(.white)
-                                            .padding(.horizontal, 24)
-                                            .padding(.vertical, 12)
-                                            .background(Color.blue)
-                                            .cornerRadius(10)
-                                        }
-                                        .buttonStyle(ScaleButtonStyle())
-                                        .padding(.top, 16)
-                                    }
-                                    .padding(40)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                } else {
-                                    // Grid con todos los libros filtrados
-                                    BookGridUpdatedView(books: viewModel.filteredBooks, gridLayout: viewModel.gridLayout, onDelete: { book in
-                                        viewModel.deleteBook(book: book)
-                                    }, onToggleFavorite: { book in
-                                        viewModel.toggleFavorite(book: book)
-                                    })
-                                        .padding(.horizontal, 8)
-                                }
-                            }
-
-                            Spacer(minLength: 100) // Aumentado de 90 a 100 para la barra de navegación más alta
-                        }
-                    }
-                    .coordinateSpace(name: "scroll")
-                    .fileImporter(
-                        isPresented: $viewModel.isImporting,
-                        allowedContentTypes: [UTType.pdf, UTType.epub, UTType.init(filenameExtension: "cbr")!, UTType.init(filenameExtension: "cbz")!],
-                        allowsMultipleSelection: true
-                    ) { result in
-                        switch result {
-                        case .success(let urls):
-                            // Activar el indicador de carga antes de comenzar a procesar
-                            viewModel.isProcessingFiles = true
-                            
-                            // Procesar todas las URLs seleccionadas
-                            DispatchQueue.global(qos: .userInitiated).async {
-                                for url in urls {
-                                    // Solicitar acceso de seguridad para cada archivo
-                                    if url.startAccessingSecurityScopedResource() {
-                                        // Asegurarse de que se libere el acceso cuando terminemos
-                                        defer { url.stopAccessingSecurityScopedResource() }
-                                        
-                                        // Procesar el archivo directamente
-                                        DispatchQueue.main.sync {
-                                            viewModel.processImportedFile(url: url)
-                                        }
-                                    } else {
-                                        print("No se pudo acceder al archivo de manera segura: \(url.path)")
-                                    }
-                                }
-                                
-                                // Desactivar el indicador de carga cuando se completa todo el proceso
-                                DispatchQueue.main.async {
-                                    viewModel.isProcessingFiles = false
-                                }
-                            }
-                        case .failure(let error):
-                            print("Error al importar archivos: \(error)")
-                            viewModel.isProcessingFiles = false
-                        }
-                    }
-
-                    // Header fijo
-                    VStack(spacing: 0) {
-                        // Espacio para la barra de estado
-                        Color.clear
-                            .frame(height: 50)
-                        
-                        // Título de la biblioteca
-                        HStack {
-                            Text("Biblioteca")
-                                .font(.system(size: 32, weight: .bold))
-                                .padding(.horizontal, 24)
-                                .padding(.top, 8)
-
-                            Spacer()
-                            
-                            // Botón para compactar/expandir el encabezado
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    viewModel.isHeaderCompact.toggle()
-                                }
-                            }) {
-                                Image(systemName: viewModel.isHeaderCompact ? "chevron.down" : "chevron.up")
-                                    .font(.title2)
-                                    .foregroundColor(.primary)
-                                    .padding(.trailing, 8)
-                                    .padding(.top, 8)
-                            }
-
-                            // Botón de importación
-                            Button(action: {
-                                viewModel.isImporting = true
-                            }) {
-                                Image(systemName: "plus")
-                                    .font(.title2)
-                                    .foregroundColor(.primary)
-                                    .padding(.trailing, 8)
-                                    .padding(.top, 8)
-                            }
-                            
-                            // Botón para reiniciar la biblioteca
-                            Button(action: {
-                                // Mostrar alerta de confirmación
-                                let alert = UIAlertController(title: "Opciones de biblioteca", message: nil, preferredStyle: .actionSheet)
-                                
-                                alert.addAction(UIAlertAction(title: "Verificar y reparar archivos", style: .default) { _ in
-                                    viewModel.verifyAndRepairBookPaths()
-                                })
-                                
-                                alert.addAction(UIAlertAction(title: "Reiniciar biblioteca", style: .destructive) { _ in
-                                    // Mostrar alerta de confirmación para reiniciar
-                                    let confirmAlert = UIAlertController(title: "Reiniciar biblioteca", message: "¿Estás seguro de que quieres borrar todos los libros y cargar solo los de muestra?", preferredStyle: .alert)
-                                    
-                                    confirmAlert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
-                                    confirmAlert.addAction(UIAlertAction(title: "Reiniciar", style: .destructive) { _ in
-                                        viewModel.resetToSampleBooks()
-                                    })
-                                    
-                                    // Presentar la alerta de confirmación
-                                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                                       let rootViewController = windowScene.windows.first?.rootViewController {
-                                        rootViewController.present(confirmAlert, animated: true)
-                                    }
-                                })
-                                
-                                alert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
-                                
-                                // Presentar el menú de opciones
-                                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                                   let rootViewController = windowScene.windows.first?.rootViewController {
-                                    if let popoverController = alert.popoverPresentationController {
-                                        // Para iPad, necesitamos especificar el origen del popover
-                                        popoverController.sourceView = rootViewController.view
-                                        popoverController.sourceRect = CGRect(x: rootViewController.view.bounds.midX, y: rootViewController.view.bounds.midY, width: 0, height: 0)
-                                        popoverController.permittedArrowDirections = []
-                                    }
-                                    rootViewController.present(alert, animated: true)
-                                }
-                            }) {
-                                Image(systemName: "ellipsis.circle")
-                                    .font(.title2)
-                                    .foregroundColor(.primary)
-                                    .padding(.trailing, 24)
-                                    .padding(.top, 8)
-                            }
-                        }
-                        .padding(.bottom, viewModel.isHeaderCompact ? 8 : 10) // Margen inferior reducido para mejor equilibrio
-
-                        // Barra de búsqueda y categorías (visibles solo cuando el encabezado no está compacto)
-                        if !viewModel.isHeaderCompact {
-                            // Barra de búsqueda
-                            SearchBarView(text: $viewModel.searchText, isSearching: $viewModel.isSearching)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 8)
-                                .padding(.bottom, 12)
-
-                            // Selector de categorías (oculto durante la búsqueda)
-                            if !viewModel.isSearching {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 10) {
-                                        ForEach(HomeViewModel.BookCategory.allCases) { category in
-                                            CategoryButton(
-                                                category: category,
-                                                isSelected: viewModel.selectedCategory == category,
-                                                action: { viewModel.selectedCategory = category }
-                                            )
-                                        }
-                                    }
-                                    .padding(.horizontal, 16)
-                                    .padding(.bottom, 8)
-                                }
-                            }
-                        }
-                    }
-                    .background(Material.ultraThinMaterial)
-                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
-                    .overlay(
-                        Rectangle()
-                            .frame(height: 0.5)
-                            .foregroundColor(Color.gray.opacity(0.3))
-                            .offset(y: 1),
-                        alignment: .bottom
-                    )
-                    .ignoresSafeArea(edges: .top)
-                }
-            }
+            // Contenido principal
+            mainContent
             
-            // Vista de carga
-            if viewModel.isProcessingFiles {
-                ZStack {
-                    Color.black.opacity(0.5)
-                        .edgesIgnoringSafeArea(.all)
+            // Toast notification
+            if viewModel.showToast {
+                VStack {
+                    Spacer()
                     
-                    VStack(spacing: 20) {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(1.5)
+                    HStack(alignment: .center, spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.system(size: 18))
                         
-                        Text("Importando cómics...")
-                            .font(.headline)
-                            .foregroundColor(.white)
+                        Text(viewModel.toastMessage)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.primary)
+                        
+                        Spacer()
                     }
-                    .padding(30)
-                    .background(Color(.systemBackground).opacity(0.8))
-                    .cornerRadius(15)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 14)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color(.systemBackground))
+                            .shadow(color: Color.black.opacity(0.2), radius: 15, x: 0, y: 5)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.gray.opacity(0.1), lineWidth: 0.5)
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 100) // Para que aparezca por encima de la barra de navegación
+                    .transition(.move(edge: .bottom))
                 }
-                .transition(.opacity)
-                .zIndex(1)
+                .zIndex(999)
+                .transition(.move(edge: .bottom))
+                .animation(.spring(), value: viewModel.showToast)
+                .onAppear {
+                    // Aumentamos el tiempo de visualización a 2.5 segundos para dar más tiempo para leer
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                        withAnimation {
+                            viewModel.showToast = false
+                        }
+                    }
+                }
             }
         }
-        .background(Color(.systemBackground))
-        .animation(.easeInOut, value: viewModel.isProcessingFiles)
+        .background(Color(UIColor.systemBackground))
+    }
+    
+    // Vista principal
+    private var mainContent: some View {
+        NavigationView {
+            ZStack(alignment: .top) {
+                // Content
+                ScrollView {
+                    // Spacer transparente para empujar el contenido debajo del header fijo
+                    Color.clear.frame(height: viewModel.isHeaderCompact ? 70 : (viewModel.isSearching ? 130 : 185))
+
+                    // Contenido principal
+                    VStack(alignment: .leading, spacing: 24) {
+                        // Sección de "Continuar leyendo"
+                        continueLeerSection
+                        
+                        // Sección de "Tus colecciones"
+                        coleccionesSection
+                        
+                        // Sección de "Todos los libros"
+                        todosLibrosSection
+
+                        Spacer(minLength: 100) // Aumentado de 90 a 100 para la barra de navegación más alta
+                    }
+                }
+                .coordinateSpace(name: "scroll")
+                .fileImporter(
+                    isPresented: $viewModel.isImporting,
+                    allowedContentTypes: [UTType.pdf, UTType.epub, UTType.init(filenameExtension: "cbr")!, UTType.init(filenameExtension: "cbz")!],
+                    allowsMultipleSelection: true
+                ) { result in
+                    switch result {
+                    case .success(let urls):
+                        // Activar el indicador de carga antes de comenzar a procesar
+                        print("🔵 Comenzando importación de \(urls.count) archivos")
+                        viewModel.isProcessingFiles = true
+                        LoadingManager.shared.startLoading() // Activar la vista de carga
+                        
+                        // Procesar todas las URLs seleccionadas
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            for (index, url) in urls.enumerated() {
+                                print("🔄 Procesando archivo \(index+1) de \(urls.count): \(url.lastPathComponent)")
+                                // Solicitar acceso de seguridad para cada archivo
+                                if url.startAccessingSecurityScopedResource() {
+                                    // Asegurarse de que se libere el acceso cuando terminemos
+                                    defer { url.stopAccessingSecurityScopedResource() }
+                                    
+                                    // Procesar el archivo en el hilo principal para mantener la coherencia
+                                    DispatchQueue.main.sync {
+                                        viewModel.processImportedFile(url: url)
+                                    }
+                                } else {
+                                    print("❌ No se pudo acceder al archivo de manera segura: \(url.path)")
+                                }
+                            }
+                            
+                            // Desactivar el indicador de carga cuando se completa todo el proceso
+                            DispatchQueue.main.async {
+                                print("✅ Importación completada: \(urls.count) archivos procesados")
+                                viewModel.isProcessingFiles = false
+                                LoadingManager.shared.stopLoading() // Desactivar la vista de carga
+                            }
+                        }
+                    case .failure(let error):
+                        print("❌ Error al importar archivos: \(error)")
+                        viewModel.isProcessingFiles = false
+                        LoadingManager.shared.stopLoading() // Desactivar la vista de carga en caso de error
+                    }
+                }
+
+                // Header fijo
+                headerView
+            }
+        }
+    }
+    
+    // Sección "Continuar leyendo"
+    private var continueLeerSection: some View {
+        Group {
+            if !viewModel.isSearching && !viewModel.booksInProgress.isEmpty && viewModel.selectedCategory == .all {
+                VStack(alignment: .leading, spacing: 16) {
+                    HeaderGradientText("Continuar leyendo", fontSize: 20)
+                        .padding(.horizontal, 24)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) {
+                            ForEach(viewModel.booksInProgress) { book in
+                                BookItemView(book: book, onDelete: {
+                                    viewModel.deleteBook(book: book)
+                                }, onToggleFavorite: {
+                                    viewModel.toggleFavorite(book: book)
+                                })
+                                .frame(width: 150)
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                    }
+                }
+                .padding(.bottom)
+            }
+        }
+    }
+    
+    // Sección "Tus colecciones"
+    private var coleccionesSection: some View {
+        Group {
+            if !viewModel.isSearching && !viewModel.collectionsViewModel.collections.isEmpty && viewModel.selectedCategory == .all {
+                VStack(alignment: .leading, spacing: 16) {
+                    HeaderGradientText("Tus colecciones", fontSize: 20)
+                        .padding(.horizontal, 24)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 20) {
+                            ForEach(viewModel.collectionsViewModel.collections) { collection in
+                                NavigationLink(destination: CollectionDetailView(collection: collection, viewModel: viewModel.collectionsViewModel)) {
+                                    VStack(alignment: .leading, spacing: 0) {
+                                        StackedCoversView(books: viewModel.collectionsViewModel.booksInCollection(collection))
+                                            .padding(.top, 12)
+                                            .padding(.horizontal, 10)
+                                        
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(collection.name)
+                                                .font(.headline)
+                                                .foregroundColor(.primary)
+                                            
+                                            let booksCount = viewModel.collectionsViewModel.booksInCollection(collection).count
+                                            Text("\(booksCount) \(booksCount == 1 ? "libro" : "libros")")
+                                                .font(.subheadline)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .padding(12)
+                                        .frame(maxWidth: .infinity)
+                                        .background(Color.gray.opacity(0.1))
+                                    }
+                                    .frame(width: 220)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 16)
+                                            .fill(collection.color.opacity(0.15))
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 8)
+                    }
+                }
+                .padding(.bottom)
+            }
+        }
+    }
+    
+    // Sección "Todos los libros"
+    private var todosLibrosSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header de la sección
+            HStack {
+                HeaderGradientText(viewModel.isSearching ? "Resultados de búsqueda" : "Todos los \(viewModel.selectedCategory == .all ? "títulos" : viewModel.selectedCategory.rawValue)", fontSize: 20)
+                    .padding(.horizontal, 24)
+
+                Spacer()
+
+                // Botón para ajustar la vista de cuadrícula
+                gridLayoutButton
+            }
+
+            // Contenido basado en el estado
+            Group {
+                if viewModel.filteredBooks.isEmpty && !viewModel.searchText.isEmpty {
+                    emptySearchResultsView
+                } else if viewModel.books.isEmpty {
+                    emptyLibraryView
+                } else {
+                    // Vista de libros filtrados
+                    BookGridUpdatedView(books: viewModel.filteredBooks, gridLayout: viewModel.gridLayout, onDelete: { book in
+                        viewModel.deleteBook(book: book)
+                    }, onToggleFavorite: { book in
+                        viewModel.toggleFavorite(book: book)
+                    })
+                        .padding(.horizontal, 8)
+                }
+            }
+        }
+    }
+    
+    // Botón para cambiar el layout de la cuadrícula
+    private var gridLayoutButton: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                viewModel.gridLayout = (viewModel.gridLayout + 1) % 3
+            }
+        }) {
+            Group {
+                switch viewModel.gridLayout {
+                case 0:
+                    Image(systemName: "square.grid.2x2")
+                case 1:
+                    Image(systemName: "list.bullet")
+                case 2:
+                    Image(systemName: "square.grid.3x3")
+                default:
+                    Image(systemName: "square.grid.2x2")
+                }
+            }
+            .font(.title2)
+            .foregroundColor(.primary)
+            .padding(.trailing, 24)
+        }
+    }
+    
+    // Vista para resultados de búsqueda vacíos
+    private var emptySearchResultsView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 40))
+                .foregroundColor(.gray)
+
+            Text("No se encontraron resultados para \"\(viewModel.searchText)\"")
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            Text("Intenta con otros términos de búsqueda")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 40)
+    }
+    
+    // Vista para biblioteca vacía
+    private var emptyLibraryView: some View {
+        VStack(spacing: 24) {
+            ZStack {
+                Circle()
+                    .fill(Color.blue.opacity(0.1))
+                    .frame(width: 150, height: 150)
+                
+                VStack(spacing: 10) {
+                    Image(systemName: "books.vertical")
+                        .font(.system(size: 50))
+                        .foregroundColor(.blue)
+                    
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundColor(.blue)
+                        .offset(y: -5)
+                }
+            }
+            .padding(.bottom, 10)
+            
+            Text("Tu biblioteca está vacía")
+                .font(.title2)
+                .fontWeight(.bold)
+                .multilineTextAlignment(.center)
+            
+            Text("Importa tus libros y cómics favoritos\npara comenzar a disfrutar de la lectura")
+                .font(.body)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            Button(action: {
+                // Mostrar el selector de archivos
+                viewModel.isImporting = true
+            }) {
+                HStack(spacing: 10) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.headline)
+                    Text("Importar libros")
+                        .font(.headline)
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 12)
+                .background(Color.blue)
+                .cornerRadius(10)
+            }
+            .buttonStyle(ScaleButtonStyle())
+            .padding(.top, 16)
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    // Vista del encabezado
+    private var headerView: some View {
+        VStack(spacing: 0) {
+            // Espacio para la barra de estado
+            Color.clear
+                .frame(height: 50)
+            
+            // Título de la biblioteca
+            HStack {
+                Text("Biblioteca")
+                    .font(.system(size: 32, weight: .bold))
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
+
+                Spacer()
+                
+                // Botón para compactar/expandir el encabezado
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        viewModel.isHeaderCompact.toggle()
+                    }
+                }) {
+                    Image(systemName: viewModel.isHeaderCompact ? "chevron.down" : "chevron.up")
+                        .font(.title2)
+                        .foregroundColor(.primary)
+                        .padding(.trailing, 8)
+                        .padding(.top, 8)
+                }
+
+                // Botón de importación
+                Button(action: {
+                    viewModel.isImporting = true
+                }) {
+                    Image(systemName: "plus")
+                        .font(.title2)
+                        .foregroundColor(.primary)
+                        .padding(.trailing, 8)
+                        .padding(.top, 8)
+                }
+                
+                // Botón para reiniciar la biblioteca
+                Button(action: {
+                    showLibraryOptions()
+                }) {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title2)
+                        .foregroundColor(.primary)
+                        .padding(.trailing, 24)
+                        .padding(.top, 8)
+                }
+            }
+            .padding(.bottom, viewModel.isHeaderCompact ? 8 : 10) // Margen inferior reducido para mejor equilibrio
+
+            // Barra de búsqueda y categorías (visibles solo cuando el encabezado no está compacto)
+            if !viewModel.isHeaderCompact {
+                // Barra de búsqueda
+                SearchBarView(text: $viewModel.searchText, isSearching: $viewModel.isSearching)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
+
+                // Selector de categorías (oculto durante la búsqueda)
+                if !viewModel.isSearching {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(HomeViewModel.BookCategory.allCases) { category in
+                                CategoryButton(
+                                    category: category,
+                                    isSelected: viewModel.selectedCategory == category,
+                                    action: { viewModel.selectedCategory = category }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                    }
+                }
+            }
+        }
+        .background(
+            Material.ultraThinMaterial
+        )
+        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(Color.gray.opacity(0.3))
+                .offset(y: 1),
+            alignment: .bottom
+        )
+        .ignoresSafeArea(edges: .top)
+    }
+    
+    // Función para mostrar opciones de biblioteca
+    private func showLibraryOptions() {
+        let alert = UIAlertController(title: "Opciones de biblioteca", message: nil, preferredStyle: .actionSheet)
+        
+        alert.addAction(UIAlertAction(title: "Verificar y reparar archivos", style: .default) { _ in
+            viewModel.verifyAndRepairBookPaths()
+        })
+        
+        alert.addAction(UIAlertAction(title: "Reiniciar biblioteca", style: .destructive) { _ in
+            // Mostrar alerta de confirmación para reiniciar
+            let confirmAlert = UIAlertController(title: "Reiniciar biblioteca", message: "¿Estás seguro de que quieres borrar todos los libros y cargar solo los de muestra?", preferredStyle: .alert)
+            
+            confirmAlert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
+            confirmAlert.addAction(UIAlertAction(title: "Reiniciar", style: .destructive) { _ in
+                viewModel.resetToSampleBooks()
+            })
+            
+            // Presentar la alerta de confirmación
+            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let rootViewController = windowScene.windows.first?.rootViewController {
+                rootViewController.present(confirmAlert, animated: true)
+            }
+        })
+        
+        alert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
+        
+        // Presentar el menú de opciones
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootViewController = windowScene.windows.first?.rootViewController {
+            if let popoverController = alert.popoverPresentationController {
+                // Para iPad, necesitamos especificar el origen del popover
+                popoverController.sourceView = rootViewController.view
+                popoverController.sourceRect = CGRect(x: rootViewController.view.bounds.midX, y: rootViewController.view.bounds.midY, width: 0, height: 0)
+                popoverController.permittedArrowDirections = []
+            }
+            rootViewController.present(alert, animated: true)
+        }
     }
 }
 
@@ -1343,10 +1444,14 @@ struct SearchBarView: View {
                     .font(.system(size: 16))
                     .focused($isFocused)
                     .onChange(of: isFocused) { newValue in
-                        isSearching = newValue || !text.isEmpty
+                        withAnimation {
+                            isSearching = newValue || !text.isEmpty
+                        }
                     }
                     .onChange(of: text) { newValue in
-                        isSearching = isFocused || !newValue.isEmpty
+                        withAnimation {
+                            isSearching = isFocused || !newValue.isEmpty
+                        }
                     }
 
                 if !text.isEmpty {
@@ -1360,7 +1465,7 @@ struct SearchBarView: View {
                     }
                 }
             }
-            .background(Color(.systemGray6))
+            .background(Color.gray.opacity(0.1))
             .cornerRadius(10)
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
@@ -1371,12 +1476,13 @@ struct SearchBarView: View {
                 Button("Cancelar") {
                     text = ""
                     isFocused = false
-                    isSearching = false
+                    withAnimation {
+                        isSearching = false
+                    }
                 }
                 .padding(.leading, 8)
                 .font(.system(size: 16))
                 .transition(.move(edge: .trailing))
-                .animation(.default, value: isSearching)
             }
         }
         .frame(height: 44)
@@ -1397,7 +1503,7 @@ struct CategoryButton: View {
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(isSelected ? Color.blue.opacity(0.9) : Color(.systemGray6))
+                        .fill(isSelected ? Color.blue.opacity(0.9) : Color.gray.opacity(0.1))
                         .shadow(color: isSelected ? Color.blue.opacity(0.3) : Color.clear, radius: 2, x: 0, y: 1)
                 )
                 .foregroundColor(isSelected ? .white : .primary)
@@ -1466,5 +1572,24 @@ struct ScaleButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.95 : 1)
             .opacity(configuration.isPressed ? 0.9 : 1)
             .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
+    }
+}
+
+// Administrador de carga - Para gestionar de forma centralizada el estado de carga
+class LoadingManager: ObservableObject {
+    @Published var isLoading = false
+    
+    static let shared = LoadingManager()
+    
+    func startLoading() {
+        DispatchQueue.main.async {
+            self.isLoading = true
+        }
+    }
+    
+    func stopLoading() {
+        DispatchQueue.main.async {
+            self.isLoading = false
+        }
     }
 }

@@ -2,54 +2,79 @@ import SwiftUI
 
 struct SettingsView: View {
     var body: some View {
-        ZStack(alignment: .top) {
-            ScrollView {
-                // Transparent spacer to push content below the fixed header
-                Color.clear.frame(height: 80)
-                
-                VStack(spacing: 24) {
-                    // About Section - Solo mantenemos esta sección
-                    VStack(alignment: .leading, spacing: 0) {
-                        VStack(spacing: 0) {
-                            // Version Info - Solo mantenemos esta información
-                            HStack {
-                                Image(systemName: "info.circle.fill")
-                                    .frame(width: 24, height: 24)
-                                    .foregroundColor(.gray)
-                                
-                                Text("Versión")
-                                    .font(.system(size: 16))
-                                
-                                Spacer()
-                                
-                                Text("Build-state")
-                                    .foregroundColor(.gray)
-                            }
-                            .padding(.vertical, 12)
-                            .padding(.horizontal, 24)
-                        }
-                        .background(Color(.systemBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .shadow(color: Color.black.opacity(0.05), radius: 5, x: 0, y: 2)
-                        .padding(.horizontal, 24)
+        NavigationView {
+            List {
+                Section(header: Text("INFORMACIÓN").textCase(.uppercase)) {
+                    HStack {
+                        Image(systemName: "info.circle.fill")
+                            .frame(width: 24, height: 24)
+                            .foregroundColor(.gray)
+                        
+                        Text("Versión")
+                        
+                        Spacer()
+                        
+                        Text("1.0.0")
+                            .foregroundColor(.gray)
                     }
                     
-                    Spacer(minLength: 100)
+                    HStack {
+                        Image(systemName: "cpu")
+                            .frame(width: 24, height: 24)
+                            .foregroundColor(.gray)
+                        
+                        Text("Build")
+                        
+                        Spacer()
+                        
+                        Text("Debug")
+                            .foregroundColor(.gray)
+                    }
                 }
-                .padding(.vertical, 20)
+                
+                Section(header: Text("OPCIONES").textCase(.uppercase)) {
+                    HStack {
+                        Image(systemName: "text.format")
+                            .frame(width: 24, height: 24)
+                            .foregroundColor(.gray)
+                        
+                        Text("Apariencia")
+                        
+                        Spacer()
+                        
+                        Text("Sistema")
+                            .foregroundColor(.gray)
+                    }
+                    
+                    HStack {
+                        Image(systemName: "trash")
+                            .frame(width: 24, height: 24)
+                            .foregroundColor(.gray)
+                        
+                        Text("Limpiar caché")
+                        
+                        Spacer()
+                    }
+                }
+                
+                // Secciones adicionales para tener suficiente contenido para scrollear
+                Section(header: Text("ADICIONAL").textCase(.uppercase)) {
+                    ForEach(1...5, id: \.self) { i in
+                        HStack {
+                            Image(systemName: "circle.fill")
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.gray)
+                            
+                            Text("Opción \(i)")
+                            
+                            Spacer()
+                        }
+                    }
+                }
             }
-            
-            // Header simplificado
-            VStack(alignment: .leading, spacing: 8) {
-                // Settings title
-                Text("Ajustes")
-                    .font(.system(size: 32, weight: .bold))
-                    .padding(.horizontal, 24)
-                    .padding(.top, 8)
-            }
-            .background(Material.ultraThinMaterial)
-            .frame(height: 80)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .listStyle(InsetGroupedListStyle())
+            .navigationTitle("Ajustes")
+            .navigationBarTitleDisplayMode(.large)
         }
     }
 }
