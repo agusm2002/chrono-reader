@@ -9,7 +9,7 @@ class CollectionsViewModel: ObservableObject {
     @Published var showingCreateSheet = false
     @Published var selectedBooks: Set<UUID> = []
     @Published var newCollectionName = ""
-    @Published var newCollectionColor: Color = .blue
+    @Published var newCollectionColor: Color = Color.appTheme()
     
     // Referencia a los libros disponibles
     @Published var availableBooks: [CompleteBook] = []

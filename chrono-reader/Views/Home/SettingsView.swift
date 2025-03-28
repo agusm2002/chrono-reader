@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("colorScheme") private var colorScheme: Int = 0 // 0: sistema, 1: claro, 2: oscuro
+    @State private var forceUpdate: Bool = false // Para forzar actualización de la vista
     
     var body: some View {
         NavigationView {
@@ -79,6 +80,19 @@ struct SettingsView: View {
             .listStyle(InsetGroupedListStyle())
             .navigationTitle("Ajustes")
             .navigationBarTitleDisplayMode(.large)
+        }
+        .accentColor(Color.appTheme()) // Aplicar color del tema
+        .onAppear {
+            // Observar cambios de tema
+            NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("ThemeDidChange"),
+                object: nil,
+                queue: .main
+            ) { _ in
+                withAnimation {
+                    forceUpdate.toggle() // Forzar actualización de la vista
+                }
+            }
         }
     }
     

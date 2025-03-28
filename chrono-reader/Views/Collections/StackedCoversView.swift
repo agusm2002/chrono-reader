@@ -117,4 +117,69 @@ struct ScatteredCoversView: View {
             }
         }
     }
+}
+
+// Nueva vista para portadas animadas
+struct AnimatedCoversView: View {
+    let books: [CompleteBook]
+    @State private var currentOffset: CGFloat = 0
+    @State private var movingForward = true
+    
+    // Velocidad base calculada para 5 libros en 20 segundos
+    private let baseSpeed: Double = 20.0 / 5.0 // segundos por libro
+    
+    var body: some View {
+        GeometryReader { geometry in
+            let totalWidth = geometry.size.width
+            let coverWidth: CGFloat = 112
+            let spacing: CGFloat = 10
+            let totalContentWidth = CGFloat(books.count) * (coverWidth + spacing)
+            let maxOffset = max(0, totalContentWidth - totalWidth + 32) // 32 for padding
+            
+            // Calcular la duración total basada en la cantidad de libros
+            let animationDuration = Double(books.count) * baseSpeed
+            
+            HStack(spacing: spacing) {
+                ForEach(0..<books.count, id: \.self) { index in
+                    bookCover(for: books[index])
+                        .frame(width: coverWidth, height: 168)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .contentShape(Rectangle())
+                        .shadow(color: .black.opacity(0.15), radius: 2, x: 0, y: 1)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                        )
+                }
+            }
+            .padding(.horizontal, 16)
+            .offset(x: -currentOffset)
+            .onAppear {
+                guard books.count > 3 else { return }
+                withAnimation(.linear(duration: animationDuration).repeatForever(autoreverses: true)) {
+                    currentOffset = maxOffset
+                }
+            }
+        }
+        .frame(height: 180)
+    }
+    
+    private func bookCover(for book: CompleteBook) -> some View {
+        Group {
+            if let coverPath = book.metadata.coverPath,
+               let coverImage = UIImage(contentsOfFile: coverPath) {
+                Image(uiImage: coverImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .clipped()
+            } else {
+                ZStack {
+                    Color(.systemGray5)
+                    Image(systemName: "book.closed")
+                        .font(.title)
+                        .foregroundColor(.gray)
+                }
+            }
+        }
+    }
 } 

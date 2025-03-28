@@ -85,7 +85,7 @@ struct BookItemView: View {
                     
                     Text("\(Int(book.book.progress * 100))%")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.blue)
+                        .foregroundColor(Color.appTheme())
                 }
                 .padding(.horizontal, 2)
                 .id(book.book.progress)
@@ -181,7 +181,7 @@ struct BookItemView: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.7))
+                            .background(Color.appTheme().opacity(0.7))
                             .cornerRadius(4)
                             .id("date-\(book.id)-\(lastReadDate.timeIntervalSince1970)")
                     }
@@ -276,6 +276,7 @@ struct BookItemView: View {
         Group {
             if book.book.isFavorite {
                 Image(systemName: "star.fill")
+                    .font(.system(size: 16))
                     .foregroundColor(.yellow)
                     .padding(8)
                     .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)

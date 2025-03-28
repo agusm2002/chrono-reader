@@ -12,7 +12,119 @@ import SwiftUI
 class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
         print("Aplicación iniciada")
+        
+        // Configurar apariencia global de la navegación
+        configureGlobalAppearance()
+        
         return true
+    }
+    
+    // Función para configurar la apariencia global de la aplicación
+    private func configureGlobalAppearance() {
+        // Observar los cambios en el color del tema
+        NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            // Verificar si el cambio afecta al color del tema
+            if let userDefaults = notification.object as? UserDefaults,
+               userDefaults.object(forKey: "appThemeColor") != nil {
+                print("Cambio detectado en el color del tema")
+                self?.updateNavigationBarAppearance()
+            } else {
+                // Para otros cambios de UserDefaults
+                self?.updateNavigationBarAppearance()
+            }
+        }
+        
+        // Configurar apariencia inicial
+        updateNavigationBarAppearance()
+    }
+    
+    // Actualizar la apariencia de la barra de navegación
+    private func updateNavigationBarAppearance() {
+        let themeColor = Color.appTheme().toUIColor()
+        
+        // Configuración para iOS 13+
+        UINavigationBar.appearance().tintColor = themeColor
+        
+        // Configuración mejorada para iOS 15+
+        if #available(iOS 15.0, *) {
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithDefaultBackground()
+            
+            // Establecer colores de texto y botones
+            appearance.titleTextAttributes = [.foregroundColor: UIColor.label]
+            appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.label]
+            
+            // Configurar apariencia de botones
+            let buttonAppearance = UIBarButtonItemAppearance(style: .plain)
+            buttonAppearance.normal.titleTextAttributes = [.foregroundColor: themeColor]
+            appearance.buttonAppearance = buttonAppearance
+            
+            // Configurar apariencia de botones "back"
+            let backButtonAppearance = UIBarButtonItemAppearance(style: .plain)
+            backButtonAppearance.normal.titleTextAttributes = [.foregroundColor: themeColor]
+            appearance.backButtonAppearance = backButtonAppearance
+            
+            // Asegurarse de que la imagen del botón "back" tenga el color del tema
+            UINavigationBar.appearance().standardAppearance = appearance
+            UINavigationBar.appearance().scrollEdgeAppearance = appearance
+            UINavigationBar.appearance().compactAppearance = appearance
+            
+            // Forzar actualización de todas las barras de navegación
+            UIApplication.shared.windows.forEach { window in
+                window.rootViewController?.navigationController?.navigationBar.tintColor = themeColor
+            }
+        }
+        
+        // Configurar tintColor global para todos los botones de barra
+        UIBarButtonItem.appearance().tintColor = themeColor
+        
+        // Configurar tintColor global para controles como UISwitch, UISlider, etc.
+        UIView.appearance(whenContainedInInstancesOf: [UISwitch.self]).tintColor = themeColor
+        UISwitch.appearance().onTintColor = themeColor
+        UISlider.appearance().tintColor = themeColor
+        
+        // Forzar actualización de todas las ventanas
+        DispatchQueue.main.async {
+            // Notificar el cambio de tema
+            NotificationCenter.default.post(name: NSNotification.Name("ThemeDidChange"), object: nil)
+            
+            // Forzar actualización de las ventanas
+            UIApplication.shared.windows.forEach { window in
+                window.subviews.forEach { view in
+                    view.setNeedsLayout()
+                    view.layoutIfNeeded()
+                }
+                window.setNeedsLayout()
+                window.layoutIfNeeded()
+            }
+        }
+    }
+}
+
+// Extensión para convertir Color de SwiftUI a UIColor
+extension Color {
+    func toUIColor() -> UIColor {
+        if #available(iOS 14.0, *) {
+            return UIColor(self)
+        } else {
+            let scanner = Scanner(string: self.description.trimmingCharacters(in: CharacterSet.alphanumerics.inverted))
+            var hexNumber: UInt64 = 0
+            var r: CGFloat = 0.0, g: CGFloat = 0.0, b: CGFloat = 0.0, a: CGFloat = 0.0
+            
+            let result = scanner.scanHexInt64(&hexNumber)
+            if result {
+                r = CGFloat((hexNumber & 0xff000000) >> 24) / 255
+                g = CGFloat((hexNumber & 0x00ff0000) >> 16) / 255
+                b = CGFloat((hexNumber & 0x0000ff00) >> 8) / 255
+                a = CGFloat(hexNumber & 0x000000ff) / 255
+                return UIColor(red: r, green: g, blue: b, alpha: a)
+            }
+            return UIColor.blue // Color por defecto si falla la conversión
+        }
     }
 }
 
@@ -30,6 +142,7 @@ struct ChronoReaderApp: App {
     
     // Preferencia de esquema de color
     @AppStorage("colorScheme") private var colorScheme: Int = 0 // 0: sistema, 1: claro, 2: oscuro
+    @AppStorage("appThemeColor") private var themeColorIndex: Int = 0 // Observar cambios en el color del tema
     
     var body: some Scene {
         WindowGroup {
@@ -55,7 +168,7 @@ struct ChronoReaderApp: App {
                             ParticleView(size: CGFloat.random(in: 3...6),
                                         position: CGPoint(x: CGFloat.random(in: -150...150), 
                                                         y: CGFloat.random(in: -200...200)),
-                                        color: [Color.blue, Color.cyan, Color(red: 0.2, green: 0.6, blue: 0.9)][index % 3],
+                                        color: Color.appTheme().opacity(CGFloat.random(in: 0.5...1.0)),
                                         isAnimating: isAnimating)
                         }
                         
@@ -64,14 +177,14 @@ struct ChronoReaderApp: App {
                             // Animación personalizada
                             ZStack {
                                 Circle()
-                                    .stroke(Color.blue.opacity(0.3), lineWidth: 8)
+                                    .stroke(Color.appTheme().opacity(0.3), lineWidth: 8)
                                     .frame(width: 80, height: 80)
                                 
                                 Circle()
                                     .trim(from: 0, to: 0.7)
                                     .stroke(
                                         LinearGradient(
-                                            gradient: Gradient(colors: [Color.cyan, Color.blue, Color(red: 0.1, green: 0.5, blue: 0.9)]),
+                                            gradient: Gradient(colors: [Color.appTheme().opacity(0.7), Color.appTheme(), Color.appTheme()]),
                                             startPoint: .topLeading,
                                             endPoint: .bottomTrailing
                                         ),
@@ -98,7 +211,7 @@ struct ChronoReaderApp: App {
                                 .fontWeight(.bold)
                                 .foregroundStyle(
                                     LinearGradient(
-                                        gradient: Gradient(colors: [Color.cyan, Color.blue]),
+                                        gradient: Gradient(colors: [Color.appTheme().opacity(0.7), Color.appTheme()]),
                                         startPoint: .leading,
                                         endPoint: .trailing
                                     )
@@ -115,7 +228,7 @@ struct ChronoReaderApp: App {
                                     Circle()
                                         .fill(
                                             LinearGradient(
-                                                gradient: Gradient(colors: [Color.cyan, Color.blue]),
+                                                gradient: Gradient(colors: [Color.appTheme().opacity(0.7), Color.appTheme()]),
                                                 startPoint: .leading,
                                                 endPoint: .trailing
                                             )
@@ -144,7 +257,7 @@ struct ChronoReaderApp: App {
                                 RoundedRectangle(cornerRadius: 25)
                                     .fill(
                                         RadialGradient(
-                                            gradient: Gradient(colors: [Color.cyan.opacity(0.3), Color.clear]),
+                                            gradient: Gradient(colors: [Color.appTheme().opacity(0.3), Color.clear]),
                                             center: .topLeading,
                                             startRadius: 0,
                                             endRadius: 150
@@ -153,9 +266,9 @@ struct ChronoReaderApp: App {
                                 
                                 // Múltiples círculos pulsantes con diferentes colores
                                 ZStack {
-                                    // Círculo azul claro
+                                    // Círculo principal
                                     Circle()
-                                        .fill(Color.cyan.opacity(0.15))
+                                        .fill(Color.appTheme().opacity(0.15))
                                         .frame(width: 120, height: 120)
                                         .scaleEffect(scaleAmount)
                                         .blur(radius: 8)
@@ -167,9 +280,9 @@ struct ChronoReaderApp: App {
                                             value: scaleAmount
                                         )
                                     
-                                    // Círculo azul medio
+                                    // Círculo secundario
                                     Circle()
-                                        .fill(Color.blue.opacity(0.15))
+                                        .fill(Color.appTheme().opacity(0.15))
                                         .frame(width: 100, height: 100)
                                         .scaleEffect(scaleAmount)
                                         .blur(radius: 5)
@@ -180,9 +293,9 @@ struct ChronoReaderApp: App {
                                             value: scaleAmount
                                         )
                                     
-                                    // Círculo azul oscuro
+                                    // Círculo terciario
                                     Circle()
-                                        .fill(Color(red: 0.1, green: 0.4, blue: 0.8).opacity(0.15))
+                                        .fill(Color.appTheme().opacity(0.15))
                                         .frame(width: 80, height: 80)
                                         .scaleEffect(scaleAmount)
                                         .blur(radius: 3)

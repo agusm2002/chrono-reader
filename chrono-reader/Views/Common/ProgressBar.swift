@@ -5,7 +5,11 @@ import SwiftUI
 struct ProgressBar: View {
     var value: Double
     var height: CGFloat = 4
-    var color: Color = .blue
+    var color: Color?
+    
+    private var barColor: Color {
+        color ?? Color.appTheme()
+    }
     
     var body: some View {
         GeometryReader { geometry in
@@ -17,7 +21,7 @@ struct ProgressBar: View {
 
                 Rectangle()
                     .frame(width: min(CGFloat(value) * geometry.size.width, geometry.size.width))
-                    .foregroundColor(color)
+                    .foregroundColor(barColor)
                     .opacity(1.0)
                     .animation(.linear(duration: 0.3), value: value)
             }

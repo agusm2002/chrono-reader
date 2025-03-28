@@ -68,6 +68,7 @@ struct CreateCollectionView: View {
                 }
             }
         }
+        .accentColor(Color.appTheme())
     }
     
     // Pestaña de configuración
@@ -249,7 +250,7 @@ struct TabButton: View {
                     .padding(.vertical, 8)
                 
                 Rectangle()
-                    .fill(isSelected ? Color.blue : Color.clear)
+                    .fill(isSelected ? Color.appTheme() : Color.clear)
                     .frame(height: 2)
             }
         }

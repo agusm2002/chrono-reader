@@ -86,7 +86,7 @@ struct CollectionsView: View {
                                 .font(.title2)
                                 .foregroundColor(.white)
                                 .padding(16)
-                                .background(Circle().fill(Color.blue))
+                                .background(Circle().fill(Color.appTheme()))
                                 .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 3)
                         }
                         .padding(.trailing, 24)
@@ -104,6 +104,7 @@ struct CollectionsView: View {
                 viewModel.loadAvailableBooks()
             }
         }
+        .accentColor(Color.appTheme())
     }
     
     // Vista cuando no hay colecciones
@@ -124,16 +125,8 @@ struct CollectionsView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
             
-            Button(action: {
+            GradientButton("Crear colección") {
                 viewModel.showingCreateSheet = true
-            }) {
-                Text("Crear colección")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
-                    .background(Color.blue)
-                    .cornerRadius(10)
             }
             .padding(.top, 16)
         }

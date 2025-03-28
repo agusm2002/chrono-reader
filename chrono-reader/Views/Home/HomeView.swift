@@ -26,6 +26,7 @@ class HomeViewModel: ObservableObject {
     @Published var isImporting: Bool = false
     @Published var isProcessingFiles: Bool = false // Nueva variable para controlar el estado de carga
     @Published var gridLayout: Int = 0 // 0: Default, 1: List, 2: Large
+    @AppStorage("isHeaderCompact") var storedIsHeaderCompact: Bool = false
     @Published var isHeaderCompact: Bool = false // Variable para controlar si el encabezado está compacto
     @Published var collectionsViewModel = CollectionsViewModel() // Agregamos el ViewModel de colecciones
     
@@ -74,6 +75,9 @@ class HomeViewModel: ObservableObject {
                 NotificationCenter.default.post(name: Notification.Name("BooksUpdated"), object: nil)
             }
             .store(in: &cancellables)
+
+        // Inicializar el estado del header desde el almacenamiento
+        isHeaderCompact = storedIsHeaderCompact
     }
     
     deinit {
@@ -1043,13 +1047,12 @@ struct HomeView: View {
                     allowedContentTypes: [UTType.pdf, UTType.epub, UTType.init(filenameExtension: "cbr")!, UTType.init(filenameExtension: "cbz")!],
                     allowsMultipleSelection: true
                 ) { result in
+                    // Activar el indicador de carga antes de comenzar el proceso de selección
+                    viewModel.isProcessingFiles = true
+                    LoadingManager.shared.startLoading()
+                    
                     switch result {
                     case .success(let urls):
-                        // Activar el indicador de carga antes de comenzar a procesar
-                        print("🔵 Comenzando importación de \(urls.count) archivos")
-                        viewModel.isProcessingFiles = true
-                        LoadingManager.shared.startLoading() // Activar la vista de carga
-                        
                         // Procesar todas las URLs seleccionadas
                         DispatchQueue.global(qos: .userInitiated).async {
                             for (index, url) in urls.enumerated() {
@@ -1072,13 +1075,16 @@ struct HomeView: View {
                             DispatchQueue.main.async {
                                 print("✅ Importación completada: \(urls.count) archivos procesados")
                                 viewModel.isProcessingFiles = false
-                                LoadingManager.shared.stopLoading() // Desactivar la vista de carga
+                                LoadingManager.shared.stopLoading()
                             }
                         }
                     case .failure(let error):
                         print("❌ Error al importar archivos: \(error)")
-                        viewModel.isProcessingFiles = false
-                        LoadingManager.shared.stopLoading() // Desactivar la vista de carga en caso de error
+                        // Asegurarse de desactivar los indicadores de carga en caso de error
+                        DispatchQueue.main.async {
+                            viewModel.isProcessingFiles = false
+                            LoadingManager.shared.stopLoading()
+                        }
                     }
                 }
 
@@ -1247,17 +1253,17 @@ struct HomeView: View {
         VStack(spacing: 24) {
             ZStack {
                 Circle()
-                    .fill(Color.blue.opacity(0.1))
+                    .fill(Color.appTheme().opacity(0.1))
                     .frame(width: 150, height: 150)
                 
                 VStack(spacing: 10) {
                     Image(systemName: "books.vertical")
                         .font(.system(size: 50))
-                        .foregroundColor(.blue)
+                        .foregroundColor(Color.appTheme())
                     
                     Image(systemName: "arrow.down.circle.fill")
                         .font(.system(size: 30))
-                        .foregroundColor(.blue)
+                        .foregroundColor(Color.appTheme())
                         .offset(y: -5)
                 }
             }
@@ -1274,24 +1280,12 @@ struct HomeView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
             
-            Button(action: {
+            GradientButton("Importar libros", icon: "plus.circle.fill") {
                 // Mostrar el selector de archivos
                 viewModel.isImporting = true
-            }) {
-                HStack(spacing: 10) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.headline)
-                    Text("Importar libros")
-                        .font(.headline)
-                }
-                .foregroundColor(.white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
-                .background(Color.blue)
-                .cornerRadius(10)
             }
-            .buttonStyle(ScaleButtonStyle())
             .padding(.top, 16)
+            
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1317,6 +1311,7 @@ struct HomeView: View {
                 Button(action: {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         viewModel.isHeaderCompact.toggle()
+                        viewModel.storedIsHeaderCompact = viewModel.isHeaderCompact
                     }
                 }) {
                     Image(systemName: viewModel.isHeaderCompact ? "chevron.down" : "chevron.up")
@@ -1507,8 +1502,8 @@ struct CategoryButton: View {
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(isSelected ? Color.blue.opacity(0.9) : Color.gray.opacity(0.1))
-                        .shadow(color: isSelected ? Color.blue.opacity(0.3) : Color.clear, radius: 2, x: 0, y: 1)
+                        .fill(isSelected ? Color.appTheme().opacity(0.9) : Color.gray.opacity(0.1))
+                        .shadow(color: isSelected ? Color.appTheme().opacity(0.3) : Color.clear, radius: 2, x: 0, y: 1)
                 )
                 .foregroundColor(isSelected ? .white : .primary)
         }
