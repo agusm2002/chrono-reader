@@ -17,42 +17,47 @@ struct BookItemView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Portada con overlays
-            ZStack(alignment: .bottom) {
-                bookCover
-                    .overlay(gradientOverlay)
-                    .overlay(progressPercentageOverlay, alignment: .bottomTrailing)
-                    .overlay(favoriteIndicator, alignment: .topTrailing)
-                    .onTapGesture {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            animateTransition = true
-                        }
-                        
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            print("Abriendo libro: \(book.book.title) con progreso: \(book.book.progress * 100)%")
-                            
-                            // Determinar qué visor abrir basado en el tipo de libro
-                            switch book.book.type {
-                            case .cbz, .cbr:
-                                isShowingComicViewer = true
-                            case .epub:
-                                isShowingEPUBViewer = true
-                            default:
-                                // Otros tipos de libros
-                                break
-                            }
-                        }
-                    }
-                    .scaleEffect(animateTransition ? 1.05 : 1.0)
-                    .brightness(animateTransition ? 0.1 : 0)
+            // Containment wrapper to prevent hitbox overflow
+            ZStack {
+                // Portada con overlays
+                ZStack(alignment: .bottom) {
+                    bookCover
+                        .overlay(gradientOverlay)
+                        .overlay(progressPercentageOverlay, alignment: .bottomTrailing)
+                        .overlay(favoriteIndicator, alignment: .topTrailing)
+                }
+                .frame(minWidth: 0, maxWidth: .infinity)
+                .aspectRatio(0.68, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.black.opacity(0.1), lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+                .scaleEffect(animateTransition ? 1.05 : 1.0)
+                .brightness(animateTransition ? 0.1 : 0)
             }
-            .aspectRatio(0.68, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(Color.black.opacity(0.1), lineWidth: 0.5)
-            )
-            .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    animateTransition = true
+                }
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    print("Abriendo libro: \(book.book.title) con progreso: \(book.book.progress * 100)%")
+                    
+                    // Determinar qué visor abrir basado en el tipo de libro
+                    switch book.book.type {
+                    case .cbz, .cbr:
+                        isShowingComicViewer = true
+                    case .epub:
+                        isShowingEPUBViewer = true
+                    default:
+                        // Otros tipos de libros
+                        break
+                    }
+                }
+            }
             .onLongPressGesture {
                 isShowingDeleteMenu = true
             }
@@ -70,6 +75,7 @@ struct BookItemView: View {
                     Label("Eliminar", systemImage: "trash")
                 }
             }
+            .id(book.id) // Ensure each book has a unique identity
             
             // Barra de progreso standalone, debajo de la portada
             if book.book.progress > 0 && displayMode != .list {
@@ -132,20 +138,22 @@ struct BookItemView: View {
         Group {
             if let coverPath = book.metadata.coverPath,
                let coverImage = UIImage(contentsOfFile: coverPath) {
-                Image(uiImage: coverImage)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(minWidth: 0, maxWidth: .infinity)
-                    .aspectRatio(2/3, contentMode: .fill)
-                    .clipped()
+                GeometryReader { geometry in
+                    Image(uiImage: coverImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .allowsHitTesting(false)
+                }
             } else {
                 ZStack {
                     Color(.systemGray5)
                     Image(systemName: "book.closed")
                         .font(.title)
                         .foregroundColor(.gray)
+                        .allowsHitTesting(false)
                 }
-                .aspectRatio(2/3, contentMode: .fill)
             }
         }
     }

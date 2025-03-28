@@ -8,14 +8,18 @@ struct BookGridView: View {
 
     // Using fixed columns with proper spacing
     private let columns = [
-        GridItem(.flexible(), spacing: 16),
-        GridItem(.flexible(), spacing: 16)
+        GridItem(.flexible(), spacing: 24),
+        GridItem(.flexible(), spacing: 24)
     ]
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 24) {
+        LazyVGrid(columns: columns, spacing: 36) {
             ForEach(books) { book in
-                BookItemView(book: book)
+                ZStack {
+                    BookItemView(book: book)
+                }
+                .contentShape(Rectangle())
+                .id(book.id) // Ensure unique identification
             }
         }
         .padding(.horizontal, 24)

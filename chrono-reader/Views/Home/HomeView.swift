@@ -819,13 +819,17 @@ class HomeViewModel: ObservableObject {
         // Borrar los datos guardados
         storedBooksData = nil
         
+        // Resetear las colecciones
+        collectionsViewModel.collections.removeAll()
+        collectionsViewModel.saveCollections()
+        
         // Cargar los libros de muestra
         loadSampleBooks()
         
         // Guardar los cambios
         saveBooks()
         
-        print("Biblioteca reiniciada con libros de muestra")
+        print("Biblioteca reiniciada con libros de muestra y colecciones eliminadas")
     }
 
     // Función para actualizar el progreso de un libro
@@ -1396,7 +1400,7 @@ struct HomeView: View {
         
         alert.addAction(UIAlertAction(title: "Reiniciar biblioteca", style: .destructive) { _ in
             // Mostrar alerta de confirmación para reiniciar
-            let confirmAlert = UIAlertController(title: "Reiniciar biblioteca", message: "¿Estás seguro de que quieres borrar todos los libros y cargar solo los de muestra?", preferredStyle: .alert)
+            let confirmAlert = UIAlertController(title: "Reiniciar biblioteca", message: "¿Estás seguro de que quieres borrar todos los libros y colecciones?", preferredStyle: .alert)
             
             confirmAlert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
             confirmAlert.addAction(UIAlertAction(title: "Reiniciar", style: .destructive) { _ in

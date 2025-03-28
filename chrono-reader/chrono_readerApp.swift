@@ -28,6 +28,9 @@ struct ChronoReaderApp: App {
     @State private var isAnimating = false
     @State private var scaleAmount = 1.0
     
+    // Preferencia de esquema de color
+    @AppStorage("colorScheme") private var colorScheme: Int = 0 // 0: sistema, 1: claro, 2: oscuro
+    
     var body: some Scene {
         WindowGroup {
             ZStack {
@@ -213,6 +216,21 @@ struct ChronoReaderApp: App {
                     .animation(.easeInOut(duration: 0.3), value: loadingManager.isLoading)
                 }
             }
+            .preferredColorScheme(selectedColorScheme)
+        }
+    }
+    
+    // Determinar el esquema de color según la preferencia del usuario
+    private var selectedColorScheme: ColorScheme? {
+        switch colorScheme {
+        case 0:
+            return nil // Sistema
+        case 1:
+            return .light // Claro
+        case 2:
+            return .dark // Oscuro
+        default:
+            return nil
         }
     }
 }

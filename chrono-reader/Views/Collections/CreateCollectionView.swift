@@ -83,6 +83,10 @@ struct CreateCollectionView: View {
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                        )
                 }
                 
                 // Selección de color
@@ -182,7 +186,7 @@ struct CreateCollectionView: View {
     
     // Pestaña de selección de libros
     private var booksSelectionTab: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 24) {
             // Contador de selección
             HStack {
                 Text("\(viewModel.selectedBooks.count) \(viewModel.selectedBooks.count == 1 ? "libro seleccionado" : "libros seleccionados")")
@@ -199,11 +203,11 @@ struct CreateCollectionView: View {
                 }
             }
             .padding(.horizontal)
-            .padding(.top, 8)
+            .padding(.top, 12)
             
             // Grid de libros
             ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 3), spacing: 16) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 3), spacing: 24) {
                     ForEach(viewModel.availableBooks) { book in
                         BookSelectionItem(
                             book: book,
@@ -217,9 +221,13 @@ struct CreateCollectionView: View {
                                 }
                             }
                         )
+                        .frame(height: 180) // Asegurar altura consistente para cada item
+                        .padding(.horizontal, 2) // Pequeño padding adicional para separar los elementos
                     }
                 }
-                .padding(.horizontal)
+                .padding(.horizontal, 12)
+                .padding(.top, 24) // Aumentado de 16 a 24 para compensar la eliminación del espaciador
+                .padding(.bottom, 16)
             }
         }
     }
@@ -257,15 +265,16 @@ struct BookSelectionItem: View {
     let onToggle: () -> Void
     
     var body: some View {
-        VStack {
+        VStack(spacing: 6) {
             ZStack(alignment: .topTrailing) {
-                // Portada del libro
+                // Portada del libro con área de toque restringida
                 Group {
                     if let coverPath = book.metadata.coverPath,
                        let coverImage = UIImage(contentsOfFile: coverPath) {
                         Image(uiImage: coverImage)
                             .resizable()
-                            .scaledToFill()
+                            .aspectRatio(contentMode: .fill)
+                            .clipped()
                     } else {
                         ZStack {
                             Color(.systemGray5)
@@ -275,12 +284,18 @@ struct BookSelectionItem: View {
                         }
                     }
                 }
-                .aspectRatio(2/3, contentMode: .fit)
+                .frame(minWidth: 0, maxWidth: .infinity)
+                .aspectRatio(2/3, contentMode: .fill)
+                .clipped()
                 .cornerRadius(8)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(isSelected ? selectionColor : Color.clear, lineWidth: 3)
                 )
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+                .onTapGesture {
+                    onToggle()
+                }
                 
                 // Indicador de selección
                 if isSelected {
@@ -299,12 +314,13 @@ struct BookSelectionItem: View {
             
             Text(book.book.title)
                 .font(.caption)
-                .lineLimit(1)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(height: 32)
                 .foregroundColor(isSelected ? selectionColor : .primary)
         }
-        .onTapGesture {
-            onToggle()
-        }
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity)
     }
 }
 

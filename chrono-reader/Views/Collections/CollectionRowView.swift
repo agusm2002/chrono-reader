@@ -14,68 +14,87 @@ struct CollectionRowView: View {
     
     var body: some View {
         NavigationLink(destination: CollectionDetailView(collection: collection, viewModel: viewModel)) {
-            HStack(spacing: 24) {
-                // Portadas escalonadas
-                StackedCoversView(books: viewModel.booksInCollection(collection))
-                
-                // Información de la colección
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(collection.name)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                    
-                    Text("\(viewModel.booksInCollection(collection).count) \(viewModel.booksInCollection(collection).count == 1 ? "libro" : "libros")")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                    
-                    // Mostrar progreso general si hay libros
-                    if !viewModel.booksInCollection(collection).isEmpty {
-                        let books = viewModel.booksInCollection(collection)
-                        let averageProgress = books.reduce(0.0) { $0 + $1.book.progress } / Double(books.count)
+            VStack(alignment: .leading, spacing: 8) {
+                // Encabezado con título y menú
+                HStack(alignment: .top) {
+                    // Título e información
+                    HStack(spacing: 8) {
+                        Text(collection.name)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(collection.color)
+                            .lineLimit(1)
                         
-                        HStack(spacing: 8) {
-                            ProgressBar(value: averageProgress, height: 5, color: collection.color)
-                                .frame(height: 5)
-                            
-                            Text("\(Int(averageProgress * 100))%")
-                                .font(.caption)
-                                .foregroundColor(collection.color)
+                        Text("\(viewModel.booksInCollection(collection).count) \(viewModel.booksInCollection(collection).count == 1 ? "libro" : "libros")")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .padding(.top, 4)
+                    }
+                    
+                    Spacer()
+                    
+                    // Menú
+                    Menu {
+                        Button(action: {
+                            newName = collection.name
+                            isShowingRenameAlert = true
+                        }) {
+                            Label("Renombrar", systemImage: "pencil")
                         }
-                        .padding(.top, 6)
+                        
+                        Button(role: .destructive, action: {
+                            onDelete?()
+                        }) {
+                            Label("Eliminar colección", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 18))
+                            .foregroundColor(.gray)
+                            .padding(8)
+                            .background(Color(.systemGray6))
+                            .clipShape(Circle())
                     }
                 }
-                .padding(.vertical, 12)
+                .padding(.horizontal, 12)
+                .padding(.top, 16)
                 
-                Spacer()
+                // Portadas alineadas horizontalmente
+                ScatteredCoversView(books: viewModel.booksInCollection(collection))
+                    .padding(.top, 6)
+                    .padding(.bottom, 4)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 180)
                 
-                // Botón de menú
-                Menu {
-                    Button(action: {
-                        newName = collection.name
-                        isShowingRenameAlert = true
-                    }) {
-                        Label("Renombrar", systemImage: "pencil")
-                    }
+                // Mostrar progreso general si hay libros
+                if !viewModel.booksInCollection(collection).isEmpty {
+                    let books = viewModel.booksInCollection(collection)
+                    let averageProgress = books.reduce(0.0) { $0 + $1.book.progress } / Double(books.count)
                     
-                    Button(role: .destructive, action: {
-                        onDelete?()
-                    }) {
-                        Label("Eliminar colección", systemImage: "trash")
+                    HStack(spacing: 8) {
+                        ProgressBar(value: averageProgress, height: 5, color: collection.color)
+                            .frame(height: 5)
+                        
+                        Text("\(Int(averageProgress * 100))%")
+                            .font(.caption)
+                            .fontWeight(.medium)
+                            .foregroundColor(collection.color)
                     }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 18))
-                        .foregroundColor(.gray)
-                        .padding(8)
-                        .background(Color(.systemGray6))
-                        .clipShape(Circle())
+                    .padding(.top, 0)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 16)
+                } else {
+                    Text("Añade libros a esta colección")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.top, 0)
+                        .padding(.bottom, 16)
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 24)
-            .frame(height: 210)
+            .padding(.horizontal, 0)
+            .padding(.vertical, 0)
+            .frame(height: 290)
             .background(
                 ZStack {
                     // Fondo con blur al estilo Apple Books
@@ -84,15 +103,15 @@ struct CollectionRowView: View {
                             .resizable()
                             .scaledToFill()
                             .blur(radius: 50)
-                            .opacity(0.3)
+                            .opacity(0.2)
                             .clipped()
                     }
                     
                     // Gradiente sobre el fondo
                     LinearGradient(
                         gradient: Gradient(colors: [
-                            collection.color.opacity(0.2),
-                            Color(.systemBackground).opacity(0.85)
+                            collection.color.opacity(0.15),
+                            Color(.systemBackground).opacity(0.9)
                         ]),
                         startPoint: .leading,
                         endPoint: .trailing
@@ -100,6 +119,7 @@ struct CollectionRowView: View {
                 }
             )
             .cornerRadius(12)
+            .padding(.horizontal, 0)
             .shadow(color: .black.opacity(0.05), radius: 5, x: 0, y: 2)
         }
         .buttonStyle(PlainButtonStyle())
@@ -173,75 +193,80 @@ struct CollectionDetailView: View {
                     ForEach(books) { book in
                         VStack(alignment: .leading, spacing: 8) {
                             // Portada del libro con gesto de toque
-                            bookCover(for: book)
-                                .aspectRatio(2/3, contentMode: .fit)
-                                .cornerRadius(8)
-                                .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
-                                .onTapGesture {
-                                    if book.book.type == .cbz || book.book.type == .cbr {
-                                        selectedBook = book
-                                        
-                                        withAnimation(.easeInOut(duration: 0.2)) {
-                                            animateTransition = true
+                            Group {
+                                bookCover(for: book)
+                                    .aspectRatio(contentMode: .fill)
+                                    .clipped()
+                            }
+                            .frame(minWidth: 0, maxWidth: .infinity)
+                            .aspectRatio(2/3, contentMode: .fit)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                            .onTapGesture {
+                                if book.book.type == .cbz || book.book.type == .cbr {
+                                    selectedBook = book
+                                    
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        animateTransition = true
+                                    }
+                                    
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                        print("Abriendo cómic desde colección: \(book.book.title)")
+                                        showingComicViewer = true
+                                    }
+                                } else {
+                                    print("Abrir libro: \(book.book.title)")
+                                }
+                            }
+                            .brightness(animateTransition && selectedBook?.id == book.id ? 0.1 : 0)
+                            .opacity(isDragging ? (books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? 1.0 : 0.6) : 1.0)
+                            .scaleEffect(isDragging && books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? 1.05 : 1.0)
+                            .shadow(color: isDragging && books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? Color.black.opacity(0.3) : Color.clear, radius: 6, x: 0, y: 3)
+                            .overlay(
+                                ZStack {
+                                    if isDragging {
+                                        if books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex {
+                                            // Estilo para el elemento que se está arrastrando
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(collection.color, lineWidth: 3)
+                                            
+                                            // Icono de mover
+                                            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                                                .font(.system(size: 20, weight: .bold))
+                                                .foregroundColor(.white)
+                                                .padding(8)
+                                                .background(collection.color)
+                                                .clipShape(Circle())
+                                                .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
+                                        } else {
+                                            // Indicador de destino potencial
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(Color.gray.opacity(0.5), style: StrokeStyle(lineWidth: 2, dash: [5]))
                                         }
-                                        
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                            print("Abriendo cómic desde colección: \(book.book.title)")
-                                            showingComicViewer = true
-                                        }
-                                    } else {
-                                        print("Abrir libro: \(book.book.title)")
                                     }
                                 }
-                                .brightness(animateTransition && selectedBook?.id == book.id ? 0.1 : 0)
-                                .opacity(isDragging ? (books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? 1.0 : 0.6) : 1.0)
-                                .scaleEffect(isDragging && books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? 1.05 : 1.0)
-                                .shadow(color: isDragging && books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? Color.black.opacity(0.3) : Color.clear, radius: 6, x: 0, y: 3)
-                                .overlay(
-                                    ZStack {
-                                        if isDragging {
-                                            if books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex {
-                                                // Estilo para el elemento que se está arrastrando
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .stroke(collection.color, lineWidth: 3)
-                                                
-                                                // Icono de mover
-                                                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                                                    .font(.system(size: 20, weight: .bold))
-                                                    .foregroundColor(.white)
-                                                    .padding(8)
-                                                    .background(collection.color)
-                                                    .clipShape(Circle())
-                                                    .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
-                                            } else {
-                                                // Indicador de destino potencial
-                                                RoundedRectangle(cornerRadius: 8)
-                                                    .stroke(Color.gray.opacity(0.5), style: StrokeStyle(lineWidth: 2, dash: [5]))
-                                            }
-                                        }
+                            )
+                            .contentShape(Rectangle())
+                            .onDrag {
+                                if let index = books.firstIndex(where: { $0.id == book.id }) {
+                                    print("Iniciando arrastre de libro: \(book.book.title) [índice: \(index)]")
+                                    withAnimation(.easeIn(duration: 0.2)) {
+                                        isDragging = true
+                                        draggedBookIndex = index
                                     }
-                                )
-                                .contentShape(Rectangle())
-                                .onDrag {
-                                    if let index = books.firstIndex(where: { $0.id == book.id }) {
-                                        print("Iniciando arrastre de libro: \(book.book.title) [índice: \(index)]")
-                                        withAnimation(.easeIn(duration: 0.2)) {
-                                            isDragging = true
-                                            draggedBookIndex = index
-                                        }
-                                        return NSItemProvider(object: "\(index)" as NSString)
-                                    }
-                                    return NSItemProvider()
+                                    return NSItemProvider(object: "\(index)" as NSString)
                                 }
-                                .onDrop(of: [.text], delegate: BookDropDelegate(
-                                    book: book,
-                                    collection: collection,
-                                    viewModel: viewModel,
-                                    isDragging: $isDragging,
-                                    draggedBookIndex: $draggedBookIndex,
-                                    books: books
-                                ))
-                            
+                                return NSItemProvider()
+                            }
+                            .onDrop(of: [.text], delegate: BookDropDelegate(
+                                book: book,
+                                collection: collection,
+                                viewModel: viewModel,
+                                isDragging: $isDragging,
+                                draggedBookIndex: $draggedBookIndex,
+                                books: books
+                            ))
+                        
                             // Información del libro
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(book.book.title)
@@ -328,7 +353,8 @@ struct CollectionDetailView: View {
                let coverImage = UIImage(contentsOfFile: coverPath) {
                 Image(uiImage: coverImage)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: .fill)
+                    .clipped()
             } else {
                 ZStack {
                     Color(.systemGray5)

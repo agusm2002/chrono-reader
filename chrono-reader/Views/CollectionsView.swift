@@ -22,52 +22,55 @@ struct CollectionsView: View {
                         emptyStateView
                     } else {
                         // Lista de colecciones
-                        ScrollView {
-                            LazyVStack(spacing: 30) {
-                                ForEach(Array(viewModel.collections.enumerated()), id: \.element.id) { index, collection in
-                                    CollectionRowView(
-                                        collection: collection,
-                                        viewModel: viewModel,
-                                        onDelete: {
-                                            viewModel.deleteCollection(collection)
-                                        }
-                                    )
-                                    .opacity(isDragging && draggedItemIndex != index ? 0.7 : 1.0)
-                                    .scaleEffect(isDragging && draggedItemIndex == index ? 1.03 : 1.0)
-                                    .zIndex(isDragging && draggedItemIndex == index ? 1 : 0)
-                                    .shadow(color: isDragging && draggedItemIndex == index ? Color.black.opacity(0.2) : Color.clear, 
-                                            radius: 5, x: 0, y: 3)
-                                    .contentShape(Rectangle())
-                                    .onDrag {
-                                        self.draggedItemIndex = index
-                                        self.isDragging = true
-                                        // Usamos un formato simple para el identificador
-                                        return NSItemProvider(object: "\(index)" as NSString)
+                        List {
+                            // Para que no tenga bordes la primera celda
+                            Text("")
+                                .frame(height: 0)
+                                .padding(0)
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Color.clear)
+                                .hidden()
+                            
+                            ForEach(Array(viewModel.collections.enumerated()), id: \.element.id) { index, collection in
+                                CollectionRowView(
+                                    collection: collection,
+                                    viewModel: viewModel,
+                                    onDelete: {
+                                        viewModel.deleteCollection(collection)
                                     }
-                                    .onDrop(of: [.text], delegate: CollectionDropDelegate(
-                                        item: collection,
-                                        currentIndex: index,
-                                        viewModel: viewModel,
-                                        isDragging: $isDragging,
-                                        draggedItemIndex: $draggedItemIndex
-                                    ))
-                                    .onChange(of: isDragging) { newValue in
-                                        // Si se detiene el arrastre, programamos una tarea para limpiar el estado
-                                        if !newValue {
-                                            dragCancellationTask?.cancel()
-                                            let task = DispatchWorkItem {
-                                                draggedItemIndex = nil
-                                            }
-                                            dragCancellationTask = task
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
+                                )
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10))
+                                .opacity(isDragging && draggedItemIndex != index ? 0.7 : 1.0)
+                                .scaleEffect(isDragging && draggedItemIndex == index ? 1.03 : 1.0)
+                                .contentShape(Rectangle())
+                                .onDrag {
+                                    self.draggedItemIndex = index
+                                    self.isDragging = true
+                                    // Usamos un formato simple para el identificador
+                                    return NSItemProvider(object: "\(index)" as NSString)
+                                }
+                                .onDrop(of: [.text], delegate: CollectionDropDelegate(
+                                    item: collection,
+                                    currentIndex: index,
+                                    viewModel: viewModel,
+                                    isDragging: $isDragging,
+                                    draggedItemIndex: $draggedItemIndex
+                                ))
+                                .onChange(of: isDragging) { newValue in
+                                    // Si se detiene el arrastre, programamos una tarea para limpiar el estado
+                                    if !newValue {
+                                        dragCancellationTask?.cancel()
+                                        let task = DispatchWorkItem {
+                                            draggedItemIndex = nil
                                         }
+                                        dragCancellationTask = task
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
                                     }
                                 }
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 24)
                         }
-                        .padding(.top, 8)
+                        .listStyle(PlainListStyle())
                     }
                 }
                 
@@ -93,6 +96,7 @@ struct CollectionsView: View {
                 }
             }
             .navigationTitle("Colecciones")
+            .navigationBarTitleDisplayMode(.large)
             .sheet(isPresented: $viewModel.showingCreateSheet) {
                 CreateCollectionView(viewModel: viewModel)
             }

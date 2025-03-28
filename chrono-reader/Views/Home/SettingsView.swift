@@ -1,49 +1,25 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @AppStorage("colorScheme") private var colorScheme: Int = 0 // 0: sistema, 1: claro, 2: oscuro
+    
     var body: some View {
         NavigationView {
             List {
-                Section(header: Text("INFORMACIÓN").textCase(.uppercase)) {
-                    HStack {
-                        Image(systemName: "info.circle.fill")
-                            .frame(width: 24, height: 24)
-                            .foregroundColor(.gray)
-                        
-                        Text("Versión")
-                        
-                        Spacer()
-                        
-                        Text("1.0.0")
-                            .foregroundColor(.gray)
-                    }
-                    
-                    HStack {
-                        Image(systemName: "cpu")
-                            .frame(width: 24, height: 24)
-                            .foregroundColor(.gray)
-                        
-                        Text("Build")
-                        
-                        Spacer()
-                        
-                        Text("Debug")
-                            .foregroundColor(.gray)
-                    }
-                }
-                
                 Section(header: Text("OPCIONES").textCase(.uppercase)) {
-                    HStack {
-                        Image(systemName: "text.format")
-                            .frame(width: 24, height: 24)
-                            .foregroundColor(.gray)
-                        
-                        Text("Apariencia")
-                        
-                        Spacer()
-                        
-                        Text("Sistema")
-                            .foregroundColor(.gray)
+                    NavigationLink(destination: AppearanceSettingsView()) {
+                        HStack {
+                            Image(systemName: "circle.lefthalf.filled")
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.gray)
+                            
+                            Text("Apariencia")
+                            
+                            Spacer()
+                            
+                            Text(colorSchemeText)
+                                .foregroundColor(.gray)
+                        }
                     }
                     
                     HStack {
@@ -71,10 +47,51 @@ struct SettingsView: View {
                         }
                     }
                 }
+                
+                Section(header: Text("INFORMACIÓN").textCase(.uppercase)) {
+                    HStack {
+                        Image(systemName: "info.circle.fill")
+                            .frame(width: 24, height: 24)
+                            .foregroundColor(.gray)
+                        
+                        Text("Versión")
+                        
+                        Spacer()
+                        
+                        Text("1.0.0")
+                            .foregroundColor(.gray)
+                    }
+                    
+                    HStack {
+                        Image(systemName: "cpu")
+                            .frame(width: 24, height: 24)
+                            .foregroundColor(.gray)
+                        
+                        Text("Build")
+                        
+                        Spacer()
+                        
+                        Text("Debug")
+                            .foregroundColor(.gray)
+                    }
+                }
             }
             .listStyle(InsetGroupedListStyle())
             .navigationTitle("Ajustes")
             .navigationBarTitleDisplayMode(.large)
+        }
+    }
+    
+    var colorSchemeText: String {
+        switch colorScheme {
+        case 0:
+            return "Sistema"
+        case 1:
+            return "Claro"
+        case 2:
+            return "Oscuro"
+        default:
+            return "Sistema"
         }
     }
 }
