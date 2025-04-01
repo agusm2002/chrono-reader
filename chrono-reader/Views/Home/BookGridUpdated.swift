@@ -6,6 +6,10 @@ struct BookGridUpdatedView: View {
     var onDelete: ((CompleteBook) -> Void)? // Closure opcional para eliminar
     var onToggleFavorite: ((CompleteBook) -> Void)? // Closure opcional para toggle favorito
     
+    // Constantes para mejorar el rendimiento
+    private let defaultGridColumns = [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)]
+    private let largeGridColumns = [GridItem(.flexible(), spacing: 24)]
+    
     var body: some View {
         Group {
             switch gridLayout {
@@ -18,23 +22,30 @@ struct BookGridUpdatedView: View {
     }
     
     private func defaultGrid() -> some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 20), count: 2)
-        
-        return LazyVGrid(columns: columns, spacing: 24) {
-            ForEach(books) { book in
-                VStack(alignment: .leading) {
+        ScrollView {
+            LazyVGrid(columns: defaultGridColumns, spacing: 24) {
+                ForEach(books) { book in
+                    // Usamos ID para ayudar a SwiftUI a identificar y reciclar vistas
                     BookItemView(book: book, displayMode: .grid, 
-                             onDelete: {
-                        onDelete?(book)
-                    },
-                             onToggleFavorite: {
-                        onToggleFavorite?(book)
-                    })
+                                onDelete: {
+                                    onDelete?(book)
+                                },
+                                onToggleFavorite: {
+                                    onToggleFavorite?(book)
+                                })
+                    .id(book.id)
+                    // Contenedor con tamaño fijo para evitar recálculos
                     .frame(width: UIScreen.main.bounds.width / 2 - 30)
+                    // Uso de transaction para mejorar renderizado en scroll
+                    .transaction { transaction in
+                        transaction.animation = nil // Desactivamos animación en scroll
+                    }
                 }
             }
+            .padding(.horizontal, 20)
         }
-        .padding(.horizontal, 20)
+        // Optimización del scroll
+        .scrollIndicators(.hidden)
     }
     
     private func listLayout() -> some View {
@@ -42,23 +53,27 @@ struct BookGridUpdatedView: View {
             LazyVStack(spacing: 16) {
                 ForEach(books) { book in
                     HStack(spacing: 12) {
+                        // La vista del libro es reutilizable
                         BookItemView(book: book, displayMode: .list, 
-                                     onDelete: {
-                            onDelete?(book)
-                        },
-                                     onToggleFavorite: {
-                            onToggleFavorite?(book)
-                        })
-                        .frame(width: 80)
+                                    onDelete: {
+                                        onDelete?(book)
+                                    },
+                                    onToggleFavorite: {
+                                        onToggleFavorite?(book)
+                                    })
+                        .id(book.id)
+                        .frame(width: 80, height: 120) // Altura fija para mejorar rendimiento
                         
                         VStack(alignment: .leading, spacing: 6) {
                             Text(book.displayTitle)
                                 .font(.subheadline)
                                 .fontWeight(.medium)
+                                .lineLimit(2)
                             
                             Text(book.book.author)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+                                .lineLimit(1)
                             
                             Spacer()
                             
@@ -76,69 +91,89 @@ struct BookGridUpdatedView: View {
                         
                         Spacer()
                     }
+                    .id(book.id) // ID adicional para ayudar al sistema de diferenciación
                     .padding(.horizontal, 20)
                     .background(
                         RoundedRectangle(cornerRadius: 8)
                             .fill(Color(.systemBackground))
                             .shadow(color: .black.opacity(0.05), radius: 3, x: 0, y: 1)
                     )
+                    // Evitar animaciones en scroll
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
                 }
             }
             .padding(.vertical, 16)
         }
+        // Optimización del scroll
+        .scrollIndicators(.hidden)
     }
     
     private func largeGrid() -> some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 24), count: 1)
-        
-        return LazyVGrid(columns: columns, spacing: 24) {
-            ForEach(books) { book in
-                VStack(alignment: .leading, spacing: 12) {
-                    BookItemView(book: book, displayMode: .large, 
-                                 onDelete: {
-                        onDelete?(book)
-                    },
-                                 onToggleFavorite: {
-                        onToggleFavorite?(book)
-                    })
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(book.displayTitle)
-                            .font(.headline)
-                            .lineLimit(2)
+        ScrollView {
+            LazyVGrid(columns: largeGridColumns, spacing: 24) {
+                ForEach(books) { book in
+                    VStack(alignment: .leading, spacing: 12) {
+                        BookItemView(book: book, displayMode: .large, 
+                                    onDelete: {
+                                        onDelete?(book)
+                                    },
+                                    onToggleFavorite: {
+                                        onToggleFavorite?(book)
+                                    })
+                        .id(book.id)
                         
-                        if let localURL = book.metadata.localURL,
-                           let fileSize = try? FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? Int64 {
-                            HStack(spacing: 4) {
-                                let fileSizeString = formatFileSize(fileSize)
-                                Text(fileSizeString)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.gray.opacity(0.15))
-                                    .cornerRadius(4)
-                                
-                                Text(book.book.type.rawValue.uppercased())
-                                    .font(.system(size: 11, weight: .medium))
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(Color.gray.opacity(0.15))
-                                    .foregroundColor(.primary)
-                                    .cornerRadius(4)
-                                
-                                if let issue = book.book.issueNumber {
-                                    Text("#\(issue)")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color.gray.opacity(0.15))
-                                        .cornerRadius(4)
-                                }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(book.displayTitle)
+                                .font(.headline)
+                                .lineLimit(2)
+                            
+                            if let localURL = book.metadata.localURL,
+                               let fileSize = try? FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? Int64 {
+                                // Extraemos la vista de etiquetas a una función para mejorar rendimiento
+                                bookBadges(book: book, fileSize: fileSize)
                             }
                         }
                     }
+                    .padding(.horizontal, 20)
+                    // Evitar animaciones en scroll
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
                 }
-                .padding(.horizontal, 20)
+            }
+        }
+        // Optimización del scroll
+        .scrollIndicators(.hidden)
+    }
+    
+    // Extraer las etiquetas a una función mejora el rendimiento
+    private func bookBadges(book: CompleteBook, fileSize: Int64) -> some View {
+        HStack(spacing: 4) {
+            let fileSizeString = formatFileSize(fileSize)
+            Text(fileSizeString)
+                .font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.gray.opacity(0.15))
+                .cornerRadius(4)
+            
+            Text(book.book.type.rawValue.uppercased())
+                .font(.system(size: 11, weight: .medium))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.gray.opacity(0.15))
+                .foregroundColor(.primary)
+                .cornerRadius(4)
+            
+            if let issue = book.book.issueNumber {
+                Text("#\(issue)")
+                    .font(.system(size: 12, weight: .semibold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.gray.opacity(0.15))
+                    .cornerRadius(4)
             }
         }
     }

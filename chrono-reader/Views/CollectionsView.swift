@@ -29,10 +29,8 @@ struct CollectionsView: View {
                             Menu {
                                 ForEach(CollectionsViewModel.CollectionSortOption.allCases) { option in
                                     Button(action: {
-                                        withAnimation {
-                                            viewModel.selectedSortOption = option
-                                            viewModel.storedSortOption = option.rawValue
-                                        }
+                                        viewModel.selectedSortOption = option
+                                        viewModel.storedSortOption = option.rawValue
                                     }) {
                                         HStack {
                                             Text(option.rawValue)
@@ -192,8 +190,13 @@ struct CollectionsView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
                     }
                 }
+                // Eliminar animaciones durante el scroll
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
             }
         }
+        .id("collectionsListContainer") // ID constante para preservar el estado
     }
     
     // Vista cuando no hay colecciones

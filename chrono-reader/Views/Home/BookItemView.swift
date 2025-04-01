@@ -1,5 +1,7 @@
 import SwiftUI
 import Combine
+import CoreGraphics
+import ImageIO
 
 struct BookItemView: View {
     let book: CompleteBook
@@ -264,14 +266,20 @@ struct BookItemView: View {
                     
                     Spacer()
                     
-                    // Portada centrada
-                    if let coverPath = book.metadata.coverPath,
-                       let coverImage = UIImage(contentsOfFile: coverPath) {
-                        Image(uiImage: coverImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .padding()
+                    // Portada centrada con carga optimizada
+                    if let coverPath = book.metadata.coverPath {
+                        // Utilizamos CachedImage para la carga optimizada
+                        ZStack {
+                            // Indicador de carga
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            
+                            // Imagen principal con renderizado asíncrono y caché
+                            CachedImage(imagePath: coverPath, targetSize: CGSize(width: UIScreen.main.bounds.width * 0.9, height: UIScreen.main.bounds.height * 0.7))
+                                .aspectRatio(contentMode: .fit)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .padding()
+                        }
                     } else {
                         ZStack {
                             RoundedRectangle(cornerRadius: 12)
@@ -374,12 +382,10 @@ struct BookItemView: View {
 
     private var bookCover: some View {
         Group {
-            if let coverPath = book.metadata.coverPath,
-               let coverImage = UIImage(contentsOfFile: coverPath) {
+            if let coverPath = book.metadata.coverPath {
                 GeometryReader { geometry in
-                    Image(uiImage: coverImage)
-                        .resizable()
-                        .scaledToFill()
+                    // Usar la nueva vista CachedImage que gestiona optimización y caché
+                    CachedImage(imagePath: coverPath, targetSize: geometry.size)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
                         .allowsHitTesting(false)
@@ -454,5 +460,27 @@ struct BookItemView: View {
 
     private var favoriteIndicator: some View {
         EmptyView()
+    }
+
+    // Función para hacer downsampling de imágenes según el tamaño de destino
+    private func downsampleImage(_ image: UIImage, to targetSize: CGSize) -> UIImage {
+        let imageSourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let imageSource = CGImageSourceCreateWithData(image.pngData()! as CFData, imageSourceOptions) else {
+            return image
+        }
+        
+        let maxDimensionInPixels = max(targetSize.width, targetSize.height) * UIScreen.main.scale
+        let downsampleOptions = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxDimensionInPixels
+        ] as CFDictionary
+        
+        guard let downsampledImage = CGImageSourceCreateThumbnailAtIndex(imageSource, 0, downsampleOptions) else {
+            return image
+        }
+        
+        return UIImage(cgImage: downsampledImage)
     }
 }

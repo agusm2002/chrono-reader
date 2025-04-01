@@ -41,6 +41,9 @@ class HomeViewModel: ObservableObject {
     @Published var isHeaderCompact: Bool = false // Variable para controlar si el encabezado está compacto
     @Published var collectionsViewModel = CollectionsViewModel() // Agregamos el ViewModel de colecciones
     
+    // Para controlar la actualización del encabezado
+    @Published var headerRefreshTrigger: UUID = UUID()
+    
     // Configuración de las secciones del Home
     @AppStorage("showRecentSection") var showRecentSection: Bool = true
     @AppStorage("showCollectionsSection") var showCollectionsSection: Bool = true
@@ -62,7 +65,39 @@ class HomeViewModel: ObservableObject {
     }
     
     @AppStorage("selectedSortOption") var storedSortOption: String = SortOption.intelligent.rawValue
-    @Published var selectedSortOption: SortOption = .intelligent
+    
+    // Almacenamiento de libros filtrados para evitar múltiples recálculos
+    @Published private(set) var filteredBooks: [CompleteBook] = []
+    
+    // Separamos el sort option para evitar que provoque actualizaciones en la vista
+    private var _selectedSortOption: SortOption = .intelligent
+    var selectedSortOption: SortOption {
+        get { _selectedSortOption }
+        set {
+            if _selectedSortOption != newValue {
+                // Guardamos la categoría actual
+                let currentCategory = selectedCategory
+                
+                _selectedSortOption = newValue
+                // Actualizamos solo los libros filtrados sin emitir cambios en otras propiedades
+                updateFilteredBooks()
+                
+                // Guardamos la nueva opción de ordenamiento
+                storedSortOption = newValue.rawValue
+                
+                // Refrescar el encabezado para evitar problemas visuales
+                refreshHeader()
+                
+                // Nos aseguramos de mantener la categoría seleccionada
+                if selectedCategory != currentCategory {
+                    updateSelectedCategory(currentCategory)
+                }
+            }
+        }
+    }
+    
+    // Cancellables para gestionar suscripciones
+    private var cancellables = Set<AnyCancellable>()
     
     init() {
         loadBooks()
@@ -71,7 +106,7 @@ class HomeViewModel: ObservableObject {
         collectionsViewModel.loadAvailableBooks()
         
         // Inicializar el ordenamiento desde el almacenamiento
-        selectedSortOption = SortOption(rawValue: storedSortOption) ?? .intelligent
+        _selectedSortOption = SortOption(rawValue: storedSortOption) ?? .intelligent
         
         // Inicializar la categoría desde el almacenamiento
         print("Cargando categoría almacenada: \(storedCategory)")
@@ -119,13 +154,25 @@ class HomeViewModel: ObservableObject {
 
         // Inicializar el estado del header desde el almacenamiento
         isHeaderCompact = storedIsHeaderCompact
+        
+        // Inicializar los libros filtrados
+        updateFilteredBooks()
+        
+        // Crear combinación de publicadores para actualizar los filtros cuando cambian los criterios de filtrado
+        Publishers.CombineLatest3($books, $searchText, $selectedCategory)
+            .debounce(for: .milliseconds(10), scheduler: RunLoop.main) // Pequeño debounce para evitar múltiples actualizaciones
+            .sink { [weak self] _, _, _ in
+                self?.updateFilteredBooks()
+            }
+            .store(in: &cancellables)
     }
     
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
     
-    var filteredBooks: [CompleteBook] {
+    // Método para actualizar la lista filtrada de libros
+    private func updateFilteredBooks() {
         var filtered = books
 
         if !searchText.isEmpty {
@@ -145,21 +192,21 @@ class HomeViewModel: ObservableObject {
         }
         
         // Apply sorting
-        switch selectedSortOption {
+        switch _selectedSortOption {
         case .alphabeticalAsc:
-            return filtered.sorted { (book1: CompleteBook, book2: CompleteBook) in
+            filtered.sort { (book1: CompleteBook, book2: CompleteBook) in
                 book1.displayTitle.localizedCompare(book2.displayTitle) == .orderedAscending
             }
         case .alphabeticalDesc:
-            return filtered.sorted { (book1: CompleteBook, book2: CompleteBook) in
+            filtered.sort { (book1: CompleteBook, book2: CompleteBook) in
                 book1.displayTitle.localizedCompare(book2.displayTitle) == .orderedDescending
             }
         case .importDate:
-            return filtered.sorted { (book1: CompleteBook, book2: CompleteBook) in
+            filtered.sort { (book1: CompleteBook, book2: CompleteBook) in
                 book1.book.lastReadDate ?? Date.distantPast > book2.book.lastReadDate ?? Date.distantPast
             }
         case .intelligent:
-            return filtered.sorted { (book1: CompleteBook, book2: CompleteBook) in
+            filtered.sort { (book1: CompleteBook, book2: CompleteBook) in
                 // 1. Priorizar favoritos
                 if book1.book.isFavorite != book2.book.isFavorite {
                     return book1.book.isFavorite
@@ -194,28 +241,9 @@ class HomeViewModel: ObservableObject {
                 return book1.book.title.localizedCompare(book2.book.title) == .orderedAscending
             }
         }
-    }
-    
-    private struct SeriesInfo {
-        let name: String
-        let number: Int
-    }
-    
-    private func extractSeriesInfo(from title: String) -> SeriesInfo {
-        // Regular expression to match patterns like "Series Name 01", "Series Name 1", etc.
-        let pattern = #"(.+?)\s*(\d+)$"#
         
-        if let regex = try? NSRegularExpression(pattern: pattern),
-           let match = regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) {
-            let seriesName = String(title[Range(match.range(at: 1), in: title)!]).trimmingCharacters(in: .whitespaces)
-            let numberStr = String(title[Range(match.range(at: 2), in: title)!])
-            if let number = Int(numberStr) {
-                return SeriesInfo(name: seriesName, number: number)
-            }
-        }
-        
-        // If no match found, return the title as the name and a high number to sort it at the end
-        return SeriesInfo(name: title, number: Int.max)
+        // Actualizamos la lista filtrada
+        self.filteredBooks = filtered
     }
 
     var booksInProgress: [CompleteBook] {
@@ -1087,6 +1115,9 @@ class HomeViewModel: ObservableObject {
         storedCategory = category.rawValue
         print("Categoría actualizada a: \(category.rawValue), almacenada como: \(storedCategory)")
         
+        // Actualizar el encabezado para evitar problemas de visualización
+        refreshHeader()
+        
         // Si la nueva categoría es .all, forzar la actualización para que aparezcan las secciones
         if category == .all {
             // Forzar la recarga de colecciones
@@ -1098,7 +1129,35 @@ class HomeViewModel: ObservableObject {
         }
     }
 
-    private var cancellables = Set<AnyCancellable>()
+    // Función para refrescar el encabezado
+    func refreshHeader() {
+        // Generar un nuevo UUID para forzar la reconstrucción del encabezado
+        DispatchQueue.main.async {
+            self.headerRefreshTrigger = UUID()
+        }
+    }
+
+    private struct SeriesInfo {
+        let name: String
+        let number: Int
+    }
+
+    private func extractSeriesInfo(from title: String) -> SeriesInfo {
+        // Regular expression to match patterns like "Series Name 01", "Series Name 1", etc.
+        let pattern = #"(.+?)\s*(\d+)$"#
+        
+        if let regex = try? NSRegularExpression(pattern: pattern),
+           let match = regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) {
+            let seriesName = String(title[Range(match.range(at: 1), in: title)!]).trimmingCharacters(in: .whitespaces)
+            let numberStr = String(title[Range(match.range(at: 2), in: title)!])
+            if let number = Int(numberStr) {
+                return SeriesInfo(name: seriesName, number: number)
+            }
+        }
+        
+        // If no match found, return the title as the name and a high number to sort it at the end
+        return SeriesInfo(name: title, number: Int.max)
+    }
 }
 
 struct HomeView: View {
@@ -1164,7 +1223,7 @@ struct HomeView: View {
                 // Content
                 ScrollView {
                     // Spacer transparente para empujar el contenido debajo del header fijo
-                    Color.clear.frame(height: viewModel.isHeaderCompact ? 70 : (viewModel.isSearching ? 130 : 185))
+                    Color.clear.frame(height: viewModel.isHeaderCompact ? 40 : (viewModel.isSearching ? 130 : 185))
 
                     // Contenido principal
                     VStack(alignment: .leading, spacing: 24) {
@@ -1229,7 +1288,11 @@ struct HomeView: View {
 
                 // Header fijo
                 headerView
+                    .zIndex(1000) // Asegurar que siempre está encima
             }
+            .animation(.default, value: viewModel.isHeaderCompact)
+            .animation(.default, value: viewModel.isSearching)
+            .animation(.default, value: viewModel.selectedCategory)
             .onAppear {
                 print("⭐️ Home view appeared")
                 // Forzar la recarga de libros
@@ -1243,10 +1306,14 @@ struct HomeView: View {
                 }
                 // Asegurarnos de que el gridLayout refleja el valor almacenado
                 viewModel.gridLayout = viewModel.storedGridLayout
-                // Forzar actualización de la vista
-                viewModel.objectWillChange.send()
+                // Forzar actualización de la vista y del encabezado
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    viewModel.refreshHeader()
+                    viewModel.objectWillChange.send()
+                }
             }
         }
+        .navigationViewStyle(StackNavigationViewStyle()) // Usar StackNavigationViewStyle para evitar problemas de transición
     }
     
     // Sección "Continuar leyendo"
@@ -1349,9 +1416,16 @@ struct HomeView: View {
                 Menu {
                     ForEach(SortOption.allCases) { option in
                         Button(action: {
-                            withAnimation {
-                                viewModel.selectedSortOption = option
-                                viewModel.storedSortOption = option.rawValue
+                            // Guardamos la categoría actual antes de cambiar el orden
+                            let currentCategory = viewModel.selectedCategory
+                            
+                            // Actualizamos la opción de ordenamiento
+                            viewModel.selectedSortOption = option
+                            viewModel.storedSortOption = option.rawValue
+                            
+                            // Nos aseguramos de mantener la categoría actual
+                            if viewModel.selectedCategory != currentCategory {
+                                viewModel.updateSelectedCategory(currentCategory)
                             }
                         }) {
                             HStack {
@@ -1391,13 +1465,14 @@ struct HomeView: View {
                 } else if viewModel.books.isEmpty {
                     emptyLibraryView
                 } else {
-                    // Vista de libros filtrados
+                    // Vista de libros filtrados con ID constante para prevenir reconstrucción completa
                     BookGridUpdatedView(books: viewModel.filteredBooks, gridLayout: viewModel.gridLayout, onDelete: { book in
                         viewModel.deleteBook(book: book)
                     }, onToggleFavorite: { book in
                         viewModel.toggleFavorite(book: book)
                     })
-                        .padding(.horizontal, 8)
+                    .padding(.horizontal, 8)
+                    .id("bookGridView") // ID constante para preservar el estado durante el filtrado
                 }
             }
         }
@@ -1406,9 +1481,20 @@ struct HomeView: View {
     // Botón para cambiar el layout de la cuadrícula
     private var gridLayoutButton: some View {
         Button(action: {
+            // Guardamos la categoría actual antes de cambiar el layout
+            let currentCategory = viewModel.selectedCategory
+            
             withAnimation(.easeInOut(duration: 0.3)) {
                 viewModel.gridLayout = (viewModel.gridLayout + 1) % 3
                 viewModel.storedGridLayout = viewModel.gridLayout
+                
+                // Refrescar el encabezado para evitar problemas visuales
+                viewModel.refreshHeader()
+                
+                // Nos aseguramos de mantener la categoría actual
+                if viewModel.selectedCategory != currentCategory {
+                    viewModel.updateSelectedCategory(currentCategory)
+                }
             }
         }) {
             Group {
@@ -1503,7 +1589,7 @@ struct HomeView: View {
                 Text("Biblioteca")
                     .font(.system(size: 32, weight: .bold))
                     .padding(.horizontal, 24)
-                    .padding(.top, 8)
+                    .padding(.top, 4)
 
                 Spacer()
                 
@@ -1512,13 +1598,14 @@ struct HomeView: View {
                     withAnimation(.easeInOut(duration: 0.3)) {
                         viewModel.isHeaderCompact.toggle()
                         viewModel.storedIsHeaderCompact = viewModel.isHeaderCompact
+                        viewModel.refreshHeader()
                     }
                 }) {
                     Image(systemName: viewModel.isHeaderCompact ? "chevron.down" : "chevron.up")
                         .font(.title2)
                         .foregroundColor(.primary)
                         .padding(.trailing, 8)
-                        .padding(.top, 8)
+                        .padding(.top, 4)
                 }
 
                 // Botón de importación
@@ -1535,18 +1622,21 @@ struct HomeView: View {
                     .background(Color.appTheme())
                     .cornerRadius(8)
                     .padding(.trailing, 24)
-                    .padding(.top, 8)
+                    .padding(.top, 4)
                 }
             }
-            .padding(.bottom, viewModel.isHeaderCompact ? 8 : 10) // Margen inferior reducido para mejor equilibrio
+            .padding(.bottom, viewModel.isHeaderCompact ? 6 : 10) // Ajuste para que coincida con Colecciones
 
             // Barra de búsqueda y categorías (visibles solo cuando el encabezado no está compacto)
             if !viewModel.isHeaderCompact {
                 // Barra de búsqueda
                 SearchBarView(text: $viewModel.searchText, isSearching: $viewModel.isSearching)
                     .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 12)
+                    .padding(.top, 6)
+                    .padding(.bottom, 8)
+                    .onChange(of: viewModel.isSearching) { _ in
+                        viewModel.refreshHeader()
+                    }
 
                 // Selector de categorías (oculto durante la búsqueda)
                 if !viewModel.isSearching {
@@ -1565,7 +1655,7 @@ struct HomeView: View {
                             }
                         }
                         .padding(.horizontal, 16)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, 4)
                     }
                 }
             }
@@ -1582,6 +1672,8 @@ struct HomeView: View {
             alignment: .bottom
         )
         .ignoresSafeArea(edges: .top)
+        .id("headerView-\(viewModel.headerRefreshTrigger)")
+        .transition(.opacity)
     }
 }
 

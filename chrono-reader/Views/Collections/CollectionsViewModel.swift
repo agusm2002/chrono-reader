@@ -19,7 +19,21 @@ class CollectionsViewModel: ObservableObject {
     // Persistencia con AppStorage
     @AppStorage("collections") private var storedCollectionsData: Data?
     @AppStorage("collectionsSortOption") var storedSortOption: String = CollectionSortOption.dateCreatedDesc.rawValue
-    @Published var selectedSortOption: CollectionSortOption = .dateCreatedDesc
+    
+    // Colecciones filtradas y ordenadas para evitar recálculos continuos
+    @Published private(set) var sortedCollections: [Collection] = []
+    
+    // Separamos sort option para evitar actualizaciones innecesarias
+    private var _selectedSortOption: CollectionSortOption = .dateCreatedDesc
+    var selectedSortOption: CollectionSortOption {
+        get { _selectedSortOption }
+        set {
+            if _selectedSortOption != newValue {
+                _selectedSortOption = newValue
+                updateSortedCollections()
+            }
+        }
+    }
     
     // Colores predefinidos para elegir
     let availableColors: [Color] = [
@@ -40,10 +54,24 @@ class CollectionsViewModel: ObservableObject {
         var id: String { self.rawValue }
     }
     
+    // Cancellables para gestionar suscripciones
+    private var cancellables = Set<AnyCancellable>()
+    
     init() {
         loadCollections()
         loadAvailableBooks() // Cargar libros disponibles al inicio
-        selectedSortOption = CollectionSortOption(rawValue: storedSortOption) ?? .dateCreatedDesc
+        _selectedSortOption = CollectionSortOption(rawValue: storedSortOption) ?? .dateCreatedDesc
+        
+        // Inicializar las colecciones ordenadas
+        updateSortedCollections()
+        
+        // Crear combinación de publicadores para actualizar cuando cambian criterios
+        Publishers.CombineLatest($collections, $searchText)
+            .debounce(for: .milliseconds(10), scheduler: RunLoop.main)
+            .sink { [weak self] _, _ in
+                self?.updateSortedCollections()
+            }
+            .store(in: &cancellables)
         
         // Observar cambios en los libros disponibles
         NotificationCenter.default.addObserver(
@@ -403,32 +431,35 @@ class CollectionsViewModel: ObservableObject {
         updateBookInCollections(updatedBook)
     }
     
-    var sortedCollections: [Collection] {
+    // Método para actualizar las colecciones ordenadas
+    private func updateSortedCollections() {
         // Primero filtramos las colecciones basadas en el texto de búsqueda
         let filteredCollections = searchText.isEmpty 
             ? collections 
             : collections.filter { $0.name.lowercased().contains(searchText.lowercased()) }
         
-        // Luego aplicamos el ordenamiento seleccionado
-        switch selectedSortOption {
+        // Aplicamos el ordenamiento seleccionado
+        var sorted: [Collection]
+        
+        switch _selectedSortOption {
         case .alphabeticalAsc:
-            return filteredCollections.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+            sorted = filteredCollections.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
         case .alphabeticalDesc:
-            return filteredCollections.sorted { $0.name.localizedCompare($1.name) == .orderedDescending }
+            sorted = filteredCollections.sorted { $0.name.localizedCompare($1.name) == .orderedDescending }
         case .dateCreatedDesc:
-            return filteredCollections.sorted { $0.dateCreated > $1.dateCreated }
+            sorted = filteredCollections.sorted { $0.dateCreated > $1.dateCreated }
         case .dateCreatedAsc:
-            return filteredCollections.sorted { $0.dateCreated < $1.dateCreated }
+            sorted = filteredCollections.sorted { $0.dateCreated < $1.dateCreated }
         case .progressDesc:
-            return filteredCollections.sorted { getCollectionProgress($0) > getCollectionProgress($1) }
+            sorted = filteredCollections.sorted { getCollectionProgress($0) > getCollectionProgress($1) }
         case .progressAsc:
-            return filteredCollections.sorted { getCollectionProgress($0) < getCollectionProgress($1) }
+            sorted = filteredCollections.sorted { getCollectionProgress($0) < getCollectionProgress($1) }
         case .bookCountDesc:
-            return filteredCollections.sorted { $0.books.count > $1.books.count }
+            sorted = filteredCollections.sorted { $0.books.count > $1.books.count }
         case .bookCountAsc:
-            return filteredCollections.sorted { $0.books.count < $1.books.count }
+            sorted = filteredCollections.sorted { $0.books.count < $1.books.count }
         case .intelligent:
-            return filteredCollections.sorted { collection1, collection2 in
+            sorted = filteredCollections.sorted { collection1, collection2 in
                 // 1. Priorizar colecciones con más libros
                 if collection1.books.count != collection2.books.count {
                     return collection1.books.count > collection2.books.count
@@ -450,6 +481,9 @@ class CollectionsViewModel: ObservableObject {
                 return collection1.name.localizedCompare(collection2.name) == .orderedAscending
             }
         }
+        
+        // Actualizamos la lista ordenada
+        self.sortedCollections = sorted
     }
     
     private func getCollectionProgress(_ collection: Collection) -> Double {
