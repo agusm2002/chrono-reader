@@ -27,7 +27,7 @@ struct ComicViewer: View {
         // Inicializar el estado con el libro actual
         self._updatedBook = State(initialValue: book)
         
-        print("Inicializando ComicViewer para: \(book.book.title)")
+        print("Inicializando ComicViewer para: \(book.displayTitle)")
         print("Progreso guardado: \(book.book.progress * 100)%")
         if let lastReadDate = book.book.lastReadDate {
             print("Última lectura: \(lastReadDate)")
@@ -253,7 +253,7 @@ struct ComicViewer: View {
             
             Spacer()
             
-            Text(book.book.title)
+            Text(book.displayTitle)
                 .font(.headline)
                 .foregroundColor(.white)
                 .lineLimit(1)
@@ -435,7 +435,7 @@ struct ComicViewer: View {
                 self.isLoading = false
                 
                 // Notificar que el cómic se ha cargado correctamente
-                print("Cómic cargado correctamente: \(self.book.book.title)")
+                print("Cómic cargado correctamente: \(self.book.displayTitle)")
             }
         }
     }
@@ -491,7 +491,7 @@ struct ComicViewer: View {
                 userInfo: ["book": finalUpdatedBook]
             )
             
-            print("Notificación de progreso enviada: \(clampedProgress * 100)% para \(finalUpdatedBook.book.title)")
+            print("Notificación de progreso enviada: \(clampedProgress * 100)% para \(finalUpdatedBook.displayTitle)")
         }
     }
     

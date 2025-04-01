@@ -6,6 +6,9 @@ struct CreateCollectionView: View {
     @ObservedObject var viewModel: CollectionsViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var selectedTab = 0
+    @AppStorage("collectionSortOption") private var storedSortOption: String = SortOption.intelligent.rawValue
+    @State private var selectedSortOption: SortOption = .intelligent
+    @FocusState private var isNameFieldFocused: Bool
     
     var body: some View {
         NavigationView {
@@ -21,6 +24,8 @@ struct CreateCollectionView: View {
                     TabButton(title: "Seleccionar libros", isSelected: selectedTab == 1) {
                         withAnimation {
                             selectedTab = 1
+                            // Cerrar el teclado al cambiar a la pestaña de selección
+                            isNameFieldFocused = false
                         }
                     }
                 }
@@ -48,15 +53,11 @@ struct CreateCollectionView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(
-                            viewModel.newCollectionName.isEmpty || viewModel.selectedBooks.isEmpty ?
-                            Color.gray : viewModel.newCollectionColor
-                        )
-                        .cornerRadius(10)
+                        .background(Color.appTheme())
+                        .cornerRadius(12)
                 }
-                .disabled(viewModel.newCollectionName.isEmpty || viewModel.selectedBooks.isEmpty)
-                .padding(.horizontal)
-                .padding(.bottom, 16)
+                .padding()
+                .disabled(viewModel.newCollectionName.isEmpty)
             }
             .navigationTitle("Nueva colección")
             .navigationBarTitleDisplayMode(.inline)
@@ -68,7 +69,10 @@ struct CreateCollectionView: View {
                 }
             }
         }
-        .accentColor(Color.appTheme())
+        .onAppear {
+            // Inicializar el ordenamiento desde el almacenamiento
+            selectedSortOption = SortOption(rawValue: storedSortOption) ?? .intelligent
+        }
     }
     
     // Pestaña de configuración
@@ -81,6 +85,7 @@ struct CreateCollectionView: View {
                         .font(.headline)
                     
                     TextField("Ej: Favoritos, Para leer después...", text: $viewModel.newCollectionName)
+                        .focused($isNameFieldFocused)
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(8)
@@ -187,50 +192,105 @@ struct CreateCollectionView: View {
     
     // Pestaña de selección de libros
     private var booksSelectionTab: some View {
-        VStack(spacing: 24) {
-            // Contador de selección
+        VStack(spacing: 0) {
+            // Header con búsqueda
             HStack {
-                Text("\(viewModel.selectedBooks.count) \(viewModel.selectedBooks.count == 1 ? "libro seleccionado" : "libros seleccionados")")
-                    .font(.headline)
-                    .foregroundColor(viewModel.newCollectionColor)
-                
-                Spacer()
-                
-                if !viewModel.selectedBooks.isEmpty {
-                    Button("Deseleccionar todos") {
-                        viewModel.selectedBooks.removeAll()
+                // Barra de búsqueda
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.gray)
+                        .padding(.leading, 10)
+                    
+                    TextField("Buscar libros...", text: $viewModel.searchText)
+                        .textFieldStyle(PlainTextFieldStyle())
+                        .padding(.vertical, 8)
+                    
+                    if !viewModel.searchText.isEmpty {
+                        Button(action: {
+                            viewModel.searchText = ""
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.gray)
+                                .padding(.trailing, 10)
+                        }
                     }
-                    .foregroundColor(viewModel.newCollectionColor)
                 }
+                .background(Color(.systemGray6))
+                .cornerRadius(8)
+                .padding(.horizontal)
             }
-            .padding(.horizontal)
-            .padding(.top, 12)
+            .padding(.vertical, 8)
             
-            // Grid de libros
+            // Lista de libros
             ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 3), spacing: 24) {
-                    ForEach(viewModel.availableBooks) { book in
+                LazyVGrid(columns: [
+                    GridItem(.flexible()),
+                    GridItem(.flexible())
+                ], spacing: 16) {
+                    ForEach(sortedBooks) { book in
                         BookSelectionItem(
                             book: book,
                             isSelected: viewModel.selectedBooks.contains(book.id),
-                            selectionColor: viewModel.newCollectionColor,
-                            onToggle: {
-                                if viewModel.selectedBooks.contains(book.id) {
-                                    viewModel.selectedBooks.remove(book.id)
-                                } else {
-                                    viewModel.selectedBooks.insert(book.id)
-                                }
+                            selectionColor: viewModel.newCollectionColor
+                        ) {
+                            if viewModel.selectedBooks.contains(book.id) {
+                                viewModel.selectedBooks.remove(book.id)
+                            } else {
+                                viewModel.selectedBooks.insert(book.id)
                             }
-                        )
-                        .frame(height: 180) // Asegurar altura consistente para cada item
-                        .padding(.horizontal, 2) // Pequeño padding adicional para separar los elementos
+                        }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, 24) // Aumentado de 16 a 24 para compensar la eliminación del espaciador
-                .padding(.bottom, 16)
+                .padding()
             }
         }
+    }
+    
+    private var sortedBooks: [CompleteBook] {
+        let filtered = viewModel.availableBooks.filter { book in
+            viewModel.searchText.isEmpty || 
+            book.displayTitle.localizedCaseInsensitiveContains(viewModel.searchText)
+        }
+        
+        // Ordenamiento inteligente por defecto
+        return filtered.sorted { book1, book2 in
+            let title1 = book1.displayTitle.lowercased()
+            let title2 = book2.displayTitle.lowercased()
+            
+            // Extract series name and number if present
+            let series1 = extractSeriesInfo(from: title1)
+            let series2 = extractSeriesInfo(from: title2)
+            
+            if series1.name == series2.name {
+                // If they're from the same series, sort by number
+                return series1.number < series2.number
+            } else {
+                // If they're from different series, sort alphabetically
+                return title1.localizedCompare(title2) == .orderedAscending
+            }
+        }
+    }
+    
+    private struct SeriesInfo {
+        let name: String
+        let number: Int
+    }
+    
+    private func extractSeriesInfo(from title: String) -> SeriesInfo {
+        // Regular expression to match patterns like "Series Name 01", "Series Name 1", etc.
+        let pattern = #"(.+?)\s*(\d+)$"#
+        
+        if let regex = try? NSRegularExpression(pattern: pattern),
+           let match = regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) {
+            let seriesName = String(title[Range(match.range(at: 1), in: title)!]).trimmingCharacters(in: .whitespaces)
+            let numberStr = String(title[Range(match.range(at: 2), in: title)!])
+            if let number = Int(numberStr) {
+                return SeriesInfo(name: seriesName, number: number)
+            }
+        }
+        
+        // If no match found, return the title as the name and a high number to sort it at the end
+        return SeriesInfo(name: title, number: Int.max)
     }
 }
 
@@ -267,9 +327,10 @@ struct BookSelectionItem: View {
     
     var body: some View {
         VStack(spacing: 6) {
-            ZStack(alignment: .topTrailing) {
-                // Portada del libro con área de toque restringida
-                Group {
+            ZStack(alignment: .bottom) {
+                // Portada con sus overlays
+                ZStack(alignment: .topTrailing) {
+                    // Base: portada
                     if let coverPath = book.metadata.coverPath,
                        let coverImage = UIImage(contentsOfFile: coverPath) {
                         Image(uiImage: coverImage)
@@ -284,36 +345,98 @@ struct BookSelectionItem: View {
                                 .foregroundColor(.gray)
                         }
                     }
-                }
-                .frame(minWidth: 0, maxWidth: .infinity)
-                .aspectRatio(2/3, contentMode: .fill)
-                .clipped()
-                .cornerRadius(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(isSelected ? selectionColor : Color.clear, lineWidth: 3)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 8))
-                .onTapGesture {
-                    onToggle()
+                    
+                    // Indicador de selección
+                    if isSelected {
+                        ZStack {
+                            Circle()
+                                .fill(selectionColor)
+                                .frame(width: 24, height: 24)
+                            
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                        }
+                        .padding(6)
+                    }
                 }
                 
-                // Indicador de selección
-                if isSelected {
-                    ZStack {
-                        Circle()
-                            .fill(selectionColor)
-                            .frame(width: 24, height: 24)
+                // Capa: gradiente para mejorar legibilidad
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        .clear,
+                        .clear,
+                        .black.opacity(0.15),
+                        .black.opacity(0.3)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                
+                // Barra de progreso y etiquetas
+                if book.book.progress > 0 {
+                    VStack(spacing: 0) {
+                        Spacer()
                         
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(.white)
+                        // Etiquetas antes de la barra
+                        HStack {
+                            // Fecha en la izquierda
+                            if let lastReadDate = book.book.lastReadDate {
+                                Text(formatLastReadDate(lastReadDate))
+                                    .font(.system(size: 8, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(Color.black.opacity(0.4))
+                                    .cornerRadius(3)
+                            }
+                            
+                            Spacer()
+                            
+                            // Porcentaje en la derecha
+                            Text("\(Int(book.book.progress * 100))%")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 1)
+                                .background(Color.black.opacity(0.4))
+                                .cornerRadius(3)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.bottom, 4)
+                        
+                        // Barra de progreso en el borde inferior
+                        GeometryReader { geometry in
+                            ZStack(alignment: .leading) {
+                                // Fondo de la barra
+                                Rectangle()
+                                    .fill(Color.black.opacity(0.7))
+                                    .frame(height: 3)
+                                
+                                // Progreso
+                                Rectangle()
+                                    .fill(selectionColor)
+                                    .frame(width: geometry.size.width * CGFloat(book.book.progress), height: 3)
+                            }
+                        }
+                        .frame(height: 3)
                     }
-                    .padding(6)
                 }
             }
+            .frame(minWidth: 0, maxWidth: .infinity)
+            .aspectRatio(2/3, contentMode: .fit)
+            .clipped()
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? selectionColor : Color.clear, lineWidth: 3)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .onTapGesture {
+                onToggle()
+            }
             
-            Text(book.book.title)
+            Text(book.displayTitle)
                 .font(.caption)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
@@ -322,6 +445,20 @@ struct BookSelectionItem: View {
         }
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity)
+    }
+    
+    private func formatLastReadDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "Hoy"
+        } else if calendar.isDateInYesterday(date) {
+            return "Ayer"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            formatter.timeStyle = .none
+            return formatter.string(from: date)
+        }
     }
 }
 

@@ -10,20 +10,40 @@ class CollectionsViewModel: ObservableObject {
     @Published var selectedBooks: Set<UUID> = []
     @Published var newCollectionName = ""
     @Published var newCollectionColor: Color = Color.appTheme()
+    @Published var searchText: String = ""
+    @Published var isSearching: Bool = false
     
     // Referencia a los libros disponibles
     @Published var availableBooks: [CompleteBook] = []
     
     // Persistencia con AppStorage
     @AppStorage("collections") private var storedCollectionsData: Data?
+    @AppStorage("collectionsSortOption") var storedSortOption: String = CollectionSortOption.dateCreatedDesc.rawValue
+    @Published var selectedSortOption: CollectionSortOption = .dateCreatedDesc
     
     // Colores predefinidos para elegir
     let availableColors: [Color] = [
         .blue, .red, .green, .orange, .purple, .pink, .yellow, .teal
     ]
     
+    enum CollectionSortOption: String, CaseIterable, Identifiable {
+        case intelligent = "Auto"
+        case alphabeticalAsc = "A-Z"
+        case alphabeticalDesc = "Z-A"
+        case dateCreatedDesc = "Fecha de creación (nuevo)"
+        case dateCreatedAsc = "Fecha de creación (antiguo)"
+        case progressDesc = "Progreso (alto)"
+        case progressAsc = "Progreso (bajo)"
+        case bookCountDesc = "Más libros"
+        case bookCountAsc = "Menos libros"
+        
+        var id: String { self.rawValue }
+    }
+    
     init() {
         loadCollections()
+        loadAvailableBooks() // Cargar libros disponibles al inicio
+        selectedSortOption = CollectionSortOption(rawValue: storedSortOption) ?? .dateCreatedDesc
         
         // Observar cambios en los libros disponibles
         NotificationCenter.default.addObserver(
@@ -43,8 +63,11 @@ class CollectionsViewModel: ObservableObject {
             guard let self = self else { return }
             
             if let updatedBook = notification.userInfo?["book"] as? CompleteBook {
-                print("Colecciones: Recibida notificación de progreso para: \(updatedBook.book.title) - \(updatedBook.book.progress * 100)%")
-                self.updateBookProgress(updatedBook)
+                print("Colecciones: Recibida notificación de progreso para: \(updatedBook.displayTitle) - \(updatedBook.book.progress * 100)%")
+                
+                // En lugar de actualizar directamente, esperamos a que el HomeViewModel actualice el libro
+                // y luego recargaremos los libros disponibles cuando se notifique BooksUpdated
+                // Esto evita inconsistencias entre el estado de los libros en HomeViewModel y CollectionsViewModel
             } else {
                 print("Colecciones: Error al obtener libro actualizado de la notificación")
             }
@@ -65,6 +88,9 @@ class CollectionsViewModel: ObservableObject {
                 
                 // Revisar y limpiar colecciones para eliminar referencias a libros que ya no existen
                 cleanUpCollections()
+                
+                // Verificar la integridad de las colecciones
+                verifyCollectionsIntegrity()
             } catch {
                 print("Error al decodificar los libros para colecciones: \(error)")
                 self.availableBooks = []
@@ -79,12 +105,28 @@ class CollectionsViewModel: ObservableObject {
     func cleanUpCollections() {
         var needsUpdate = false
         
+        // Obtener todos los IDs de libros disponibles
+        let existingBookIds = Set(availableBooks.map { $0.id })
+        
+        // Buscar también en UserDefaults por seguridad
+        var additionalIds = Set<UUID>()
+        if let storedBooksData = UserDefaults.standard.data(forKey: "books") {
+            do {
+                let decoded = try JSONDecoder().decode([CompleteBook].self, from: storedBooksData)
+                additionalIds = Set(decoded.map { $0.id })
+            } catch {
+                print("Error al decodificar libros desde UserDefaults: \(error)")
+            }
+        }
+        
+        // Combinar todos los IDs conocidos
+        let allKnownBookIds = existingBookIds.union(additionalIds)
+        
         for (index, collection) in collections.enumerated() {
-            let existingBookIds = Set(availableBooks.map { $0.id })
             let collectionBookIds = Set(collection.books)
             
             // Buscar libros que están en la colección pero no en la biblioteca
-            let missingBooks = collectionBookIds.subtracting(existingBookIds)
+            let missingBooks = collectionBookIds.subtracting(allKnownBookIds)
             
             if !missingBooks.isEmpty {
                 print("Limpiando colección \(collection.name): eliminando \(missingBooks.count) libros que ya no existen")
@@ -99,6 +141,56 @@ class CollectionsViewModel: ObservableObject {
             saveCollections()
             print("Colecciones actualizadas después de limpieza")
         }
+    }
+    
+    // Función para verificar la integridad de las colecciones
+    func verifyCollectionsIntegrity() {
+        print("=== VERIFICACIÓN DE INTEGRIDAD DE COLECCIONES ===")
+        print("Total de libros disponibles: \(availableBooks.count)")
+        
+        for collection in collections {
+            print("\n- Colección: \(collection.name)")
+            print("  IDs de libros en la colección: \(collection.books.count)")
+            
+            // Verificar si hay libros en la colección que no existen en availableBooks
+            let existingBookIds = Set(availableBooks.map { $0.id })
+            let collectionBookIds = Set(collection.books)
+            let missingBooks = collectionBookIds.subtracting(existingBookIds)
+            
+            if !missingBooks.isEmpty {
+                print("  ⚠️ ALERTA: \(missingBooks.count) libros no encontrados en la biblioteca")
+                for id in missingBooks {
+                    print("    - ID que falta: \(id)")
+                }
+            } else {
+                print("  ✓ Todos los IDs de libros están presentes en availableBooks")
+            }
+            
+            // Verificar los libros que realmente están en la colección
+            let booksInCollection = collection.books.compactMap { bookId in
+                availableBooks.first { $0.id == bookId }
+            }
+            
+            print("  Libros que se pueden cargar: \(booksInCollection.count) de \(collection.books.count)")
+            
+            if booksInCollection.count != collection.books.count {
+                print("  ⚠️ ALERTA: No todos los libros pueden ser cargados")
+            }
+            
+            // Verificar si hay duplicados en los IDs de libros
+            let duplicateIds = collection.books.filter { id in
+                collection.books.filter { $0 == id }.count > 1
+            }
+            
+            if !duplicateIds.isEmpty {
+                let uniqueDuplicates = Set(duplicateIds)
+                print("  ⚠️ ALERTA: \(uniqueDuplicates.count) IDs duplicados encontrados")
+            } else {
+                print("  ✓ No hay IDs duplicados")
+            }
+        }
+        
+        print("=== FIN DE VERIFICACIÓN DE INTEGRIDAD ===")
     }
     
     // Obtener los libros de una colección específica
@@ -162,7 +254,7 @@ class CollectionsViewModel: ObservableObject {
         print("Nuevo orden de libros:")
         for (i, id) in bookIds.enumerated() {
             if let book = availableBooks.first(where: { $0.id == id }) {
-                print("[\(i)] - \(book.book.title)")
+                print("[\(i)] - \(book.displayTitle)")
             } else {
                 print("[\(i)] - ID: \(id) (no encontrado)")
             }
@@ -177,8 +269,6 @@ class CollectionsViewModel: ObservableObject {
     
     // Crear una nueva colección
     func createCollection() {
-        guard !newCollectionName.isEmpty && !selectedBooks.isEmpty else { return }
-        
         let newCollection = Collection(
             name: newCollectionName,
             books: Array(selectedBooks),
@@ -188,10 +278,17 @@ class CollectionsViewModel: ObservableObject {
         collections.append(newCollection)
         saveCollections()
         
-        // Resetear los valores
+        // Resetear el estado
         newCollectionName = ""
-        selectedBooks = []
+        selectedBooks.removeAll()
         showingCreateSheet = false
+    }
+    
+    func resetCreateCollectionState() {
+        newCollectionName = ""
+        selectedBooks.removeAll()
+        searchText = ""
+        isSearching = false
     }
     
     // Eliminar una colección
@@ -279,44 +376,86 @@ class CollectionsViewModel: ObservableObject {
         print("Orden de colecciones actualizado: de \(fromIndex) a \(toIndex)")
     }
     
-    // Actualizar el progreso de un libro en la lista de libros disponibles
-    func updateBookProgress(_ updatedBook: CompleteBook) {
-        print("Colecciones: Actualizando libro: \(updatedBook.book.title)")
+    // Actualizar un libro en todas las colecciones que lo contengan
+    func updateBookInCollections(_ updatedBook: CompleteBook) {
+        print("Actualizando libro en colecciones: \(updatedBook.displayTitle)")
         
-        // Paso 1: Actualizar el libro en nuestra lista local de libros disponibles
+        // Primero actualizamos el libro en la lista de libros disponibles
         if let index = availableBooks.firstIndex(where: { $0.id == updatedBook.id }) {
-            print("Colecciones: Libro encontrado en posición \(index), actualizando progreso")
             availableBooks[index] = updatedBook
-            
-            // Notificar a nuestras vistas que deben actualizarse
-            objectWillChange.send()
+            print("Libro actualizado en availableBooks")
         } else {
-            print("Colecciones: Libro no encontrado en lista local, cargando todos los libros")
-            // Si no encontramos el libro, recargamos todos los libros disponibles
-            loadAvailableBooks()
+            // Si el libro no existe en availableBooks, lo añadimos
+            availableBooks.append(updatedBook)
+            print("Libro añadido a availableBooks")
         }
         
-        // Paso 2: Acceder directamente a UserDefaults para actualizar el libro en la biblioteca principal
-        if let storedBooksData = UserDefaults.standard.data(forKey: "books"),
-           var storedBooks = try? JSONDecoder().decode([CompleteBook].self, from: storedBooksData) {
-            
-            if let bookIndex = storedBooks.firstIndex(where: { $0.id == updatedBook.id }) {
-                print("Colecciones: Actualizando libro directamente en UserDefaults")
-                storedBooks[bookIndex] = updatedBook
-                
-                if let encodedBooks = try? JSONEncoder().encode(storedBooks) {
-                    UserDefaults.standard.set(encodedBooks, forKey: "books")
-                    UserDefaults.standard.synchronize()
-                    
-                    // Notificar al HomeViewModel que debe actualizar su UI
-                    DispatchQueue.main.async {
-                        NotificationCenter.default.post(
-                            name: Notification.Name("BooksUpdated"),
-                            object: nil
-                        )
-                    }
+        // No es necesario modificar las colecciones ya que estas sólo almacenan los IDs de los libros,
+        // y el ID del libro no ha cambiado
+        
+        // Notificar cambios para actualizar la UI
+        objectWillChange.send()
+    }
+    
+    // Actualizar el progreso de un libro específico
+    func updateBookProgress(_ updatedBook: CompleteBook) {
+        // Actualizar el libro en availableBooks
+        updateBookInCollections(updatedBook)
+    }
+    
+    var sortedCollections: [Collection] {
+        // Primero filtramos las colecciones basadas en el texto de búsqueda
+        let filteredCollections = searchText.isEmpty 
+            ? collections 
+            : collections.filter { $0.name.lowercased().contains(searchText.lowercased()) }
+        
+        // Luego aplicamos el ordenamiento seleccionado
+        switch selectedSortOption {
+        case .alphabeticalAsc:
+            return filteredCollections.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+        case .alphabeticalDesc:
+            return filteredCollections.sorted { $0.name.localizedCompare($1.name) == .orderedDescending }
+        case .dateCreatedDesc:
+            return filteredCollections.sorted { $0.dateCreated > $1.dateCreated }
+        case .dateCreatedAsc:
+            return filteredCollections.sorted { $0.dateCreated < $1.dateCreated }
+        case .progressDesc:
+            return filteredCollections.sorted { getCollectionProgress($0) > getCollectionProgress($1) }
+        case .progressAsc:
+            return filteredCollections.sorted { getCollectionProgress($0) < getCollectionProgress($1) }
+        case .bookCountDesc:
+            return filteredCollections.sorted { $0.books.count > $1.books.count }
+        case .bookCountAsc:
+            return filteredCollections.sorted { $0.books.count < $1.books.count }
+        case .intelligent:
+            return filteredCollections.sorted { collection1, collection2 in
+                // 1. Priorizar colecciones con más libros
+                if collection1.books.count != collection2.books.count {
+                    return collection1.books.count > collection2.books.count
                 }
+                
+                // 2. Priorizar por progreso promedio
+                let progress1 = getCollectionProgress(collection1)
+                let progress2 = getCollectionProgress(collection2)
+                if progress1 != progress2 {
+                    return progress1 > progress2
+                }
+                
+                // 3. Priorizar por fecha de creación (más recientes)
+                if collection1.dateCreated != collection2.dateCreated {
+                    return collection1.dateCreated > collection2.dateCreated
+                }
+                
+                // 4. Si no hay otros criterios, ordenar alfabéticamente
+                return collection1.name.localizedCompare(collection2.name) == .orderedAscending
             }
         }
+    }
+    
+    private func getCollectionProgress(_ collection: Collection) -> Double {
+        let books = availableBooks.filter { collection.books.contains($0.id) }
+        if books.isEmpty { return 0 }
+        let totalProgress = books.reduce(0.0) { $0 + $1.book.progress }
+        return totalProgress / Double(books.count)
     }
 } 

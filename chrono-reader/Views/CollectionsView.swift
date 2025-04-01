@@ -7,104 +7,193 @@ struct CollectionsView: View {
     @State private var isDragging = false
     @State private var draggedItemIndex: Int?
     @State private var dragCancellationTask: DispatchWorkItem?
+    @AppStorage("collectionsHeaderCompact") private var storedIsHeaderCompact: Bool = false
+    @State private var isHeaderCompact: Bool = false
     
     var body: some View {
         NavigationView {
-            ZStack {
-                // Fondo
-                Color(.systemBackground)
-                    .edgesIgnoringSafeArea(.all)
-                
-                // Contenido principal
-                VStack(spacing: 0) {
-                    if viewModel.collections.isEmpty {
-                        // Vista cuando no hay colecciones
-                        emptyStateView
-                    } else {
-                        // Lista de colecciones
-                        List {
-                            // Para que no tenga bordes la primera celda
-                            Text("")
-                                .frame(height: 0)
-                                .padding(0)
-                                .listRowInsets(EdgeInsets())
-                                .listRowBackground(Color.clear)
-                                .hidden()
+            ZStack(alignment: .top) {
+                // Content
+                ScrollView {
+                    // Spacer transparente para empujar el contenido debajo del header fijo
+                    Color.clear.frame(height: isHeaderCompact ? 40 : (viewModel.isSearching ? 100 : 110))
+                    
+                    VStack(spacing: 0) {
+                        // Sección de título y filtro (siempre visible)
+                        HStack(alignment: .center) {
+                            HeaderGradientText("Tus colecciones", fontSize: 20)
                             
-                            ForEach(Array(viewModel.collections.enumerated()), id: \.element.id) { index, collection in
-                                CollectionRowView(
-                                    collection: collection,
-                                    viewModel: viewModel,
-                                    onDelete: {
-                                        viewModel.deleteCollection(collection)
-                                    }
-                                )
-                                .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10))
-                                .opacity(isDragging && draggedItemIndex != index ? 0.7 : 1.0)
-                                .scaleEffect(isDragging && draggedItemIndex == index ? 1.03 : 1.0)
-                                .contentShape(Rectangle())
-                                .onDrag {
-                                    self.draggedItemIndex = index
-                                    self.isDragging = true
-                                    // Usamos un formato simple para el identificador
-                                    return NSItemProvider(object: "\(index)" as NSString)
-                                }
-                                .onDrop(of: [.text], delegate: CollectionDropDelegate(
-                                    item: collection,
-                                    currentIndex: index,
-                                    viewModel: viewModel,
-                                    isDragging: $isDragging,
-                                    draggedItemIndex: $draggedItemIndex
-                                ))
-                                .onChange(of: isDragging) { newValue in
-                                    // Si se detiene el arrastre, programamos una tarea para limpiar el estado
-                                    if !newValue {
-                                        dragCancellationTask?.cancel()
-                                        let task = DispatchWorkItem {
-                                            draggedItemIndex = nil
+                            Spacer()
+                            
+                            // Menú de ordenamiento
+                            Menu {
+                                ForEach(CollectionsViewModel.CollectionSortOption.allCases) { option in
+                                    Button(action: {
+                                        withAnimation {
+                                            viewModel.selectedSortOption = option
+                                            viewModel.storedSortOption = option.rawValue
                                         }
-                                        dragCancellationTask = task
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
+                                    }) {
+                                        HStack {
+                                            Text(option.rawValue)
+                                            if viewModel.selectedSortOption == option {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
                                     }
                                 }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "arrow.up.arrow.down")
+                                    Text(viewModel.selectedSortOption.rawValue)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.8)
+                                }
+                                .font(.subheadline)
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color(.systemGray6))
+                                )
                             }
                         }
-                        .listStyle(PlainListStyle())
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 8)
+                        
+                        if viewModel.collections.isEmpty {
+                            emptyStateView
+                                .padding(.top, 20)
+                        } else {
+                            collectionsListLayer
+                                .padding(.top, 2)
+                        }
                     }
                 }
                 
-                // Botón flotante para crear nueva colección
-                VStack {
-                    Spacer()
+                // Header fijo
+                VStack(spacing: 0) {
+                    // Espacio para la barra de estado
+                    Color.clear
+                        .frame(height: 50)
+                    
+                    // Título de la biblioteca
                     HStack {
+                        Text("Colecciones")
+                            .font(.system(size: 32, weight: .bold))
+                            .padding(.horizontal, 24)
+                            .padding(.top, 4)
+                        
                         Spacer()
+                        
+                        // Botón para compactar/expandir el encabezado
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                isHeaderCompact.toggle()
+                                storedIsHeaderCompact = isHeaderCompact
+                            }
+                        }) {
+                            Image(systemName: isHeaderCompact ? "chevron.down" : "chevron.up")
+                                .font(.title2)
+                                .foregroundColor(.primary)
+                                .padding(.trailing, 8)
+                                .padding(.top, 4)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        
+                        // Botón de crear colección
                         Button(action: {
                             viewModel.showingCreateSheet = true
                         }) {
-                            Image(systemName: "plus")
-                                .font(.title2)
-                                .foregroundColor(.white)
-                                .padding(16)
-                                .background(Circle().fill(Color.appTheme()))
-                                .shadow(color: .black.opacity(0.3), radius: 6, x: 0, y: 3)
+                            HStack(spacing: 4) {
+                                Image(systemName: "folder.badge.plus")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.appTheme())
+                            .cornerRadius(8)
+                            .padding(.trailing, 24)
+                            .padding(.top, 4)
                         }
-                        .padding(.trailing, 24)
-                        .padding(.bottom, 65)
-                        .disabled(isDragging)
+                    }
+                    .padding(.bottom, isHeaderCompact ? 6 : 8)
+                    
+                    // Barra de búsqueda y controles (visibles solo cuando el encabezado no está compacto)
+                    if !isHeaderCompact {
+                        // Solo barra de búsqueda
+                        SearchBarView(text: $viewModel.searchText, isSearching: $viewModel.isSearching)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 6)
+                            .padding(.bottom, 8)
                     }
                 }
+                .background(
+                    Material.ultraThinMaterial
+                )
+                .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
+                .overlay(
+                    Rectangle()
+                        .frame(height: 0.5)
+                        .foregroundColor(Color.gray.opacity(0.3))
+                        .offset(y: 1),
+                    alignment: .bottom
+                )
+                .ignoresSafeArea(edges: .top)
             }
-            .navigationTitle("Colecciones")
-            .navigationBarTitleDisplayMode(.large)
             .sheet(isPresented: $viewModel.showingCreateSheet) {
                 CreateCollectionView(viewModel: viewModel)
             }
             .onAppear {
                 viewModel.loadAvailableBooks()
+                isHeaderCompact = storedIsHeaderCompact
+                print("CollectionsView apareció, colecciones cargadas: \(viewModel.collections.count)")
             }
         }
         .accentColor(Color.appTheme())
+    }
+    
+    private var collectionsListLayer: some View {
+        LazyVStack(spacing: 0) {
+            ForEach(Array(viewModel.sortedCollections.enumerated()), id: \.element.id) { index, collection in
+                CollectionRowView(
+                    collection: collection,
+                    viewModel: viewModel,
+                    onDelete: {
+                        viewModel.deleteCollection(collection)
+                    }
+                )
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .opacity(isDragging && draggedItemIndex != index ? 0.7 : 1.0)
+                .scaleEffect(isDragging && draggedItemIndex == index ? 1.03 : 1.0)
+                .contentShape(Rectangle())
+                .onDrag {
+                    self.draggedItemIndex = index
+                    self.isDragging = true
+                    return NSItemProvider(object: "\(index)" as NSString)
+                }
+                .onDrop(of: [.text], delegate: CollectionDropDelegate(
+                    item: collection,
+                    currentIndex: index,
+                    viewModel: viewModel,
+                    isDragging: $isDragging,
+                    draggedItemIndex: $draggedItemIndex
+                ))
+                .onChange(of: isDragging) { newValue in
+                    if !newValue {
+                        dragCancellationTask?.cancel()
+                        let task = DispatchWorkItem {
+                            draggedItemIndex = nil
+                        }
+                        dragCancellationTask = task
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
+                    }
+                }
+            }
+        }
     }
     
     // Vista cuando no hay colecciones
@@ -115,7 +204,7 @@ struct CollectionsView: View {
                 .foregroundColor(.gray.opacity(0.7))
                 .padding()
             
-            Text("No tienes colecciones")
+            Text("No tienes colecciones todavía")
                 .font(.title2)
                 .fontWeight(.bold)
             

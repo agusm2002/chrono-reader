@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("colorScheme") private var colorScheme: Int = 0 // 0: sistema, 1: claro, 2: oscuro
     @State private var forceUpdate: Bool = false // Para forzar actualización de la vista
+    @StateObject private var homeViewModel = HomeViewModel()
     
     var body: some View {
         NavigationView {
@@ -20,6 +21,18 @@ struct SettingsView: View {
                             
                             Text(colorSchemeText)
                                 .foregroundColor(.gray)
+                        }
+                    }
+                    
+                    NavigationLink(destination: LibrarySettingsView(viewModel: homeViewModel)) {
+                        HStack {
+                            Image(systemName: "books.vertical")
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.gray)
+                            
+                            Text("Biblioteca")
+                            
+                            Spacer()
                         }
                     }
                     
@@ -96,16 +109,12 @@ struct SettingsView: View {
         }
     }
     
-    var colorSchemeText: String {
+    private var colorSchemeText: String {
         switch colorScheme {
-        case 0:
-            return "Sistema"
-        case 1:
-            return "Claro"
-        case 2:
-            return "Oscuro"
-        default:
-            return "Sistema"
+        case 0: return "Sistema"
+        case 1: return "Claro"
+        case 2: return "Oscuro"
+        default: return "Sistema"
         }
     }
 }

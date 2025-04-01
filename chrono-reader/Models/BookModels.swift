@@ -19,6 +19,7 @@ struct Book: Identifiable, Codable {
     var progress: Double // 0.0 to 1.0
     var lastReadDate: Date? // Fecha de última lectura
     var isFavorite: Bool = false // Nuevo campo para marcar como favorito
+    var isRecent: Bool = false // Campo para marcar libros recientes
 
     // Metadata
     var isbn: String?
@@ -175,6 +176,29 @@ struct CompleteBook: Identifiable, Codable, Equatable {
     
     static func == (lhs: CompleteBook, rhs: CompleteBook) -> Bool {
         return lhs.id == rhs.id
+    }
+}
+
+// Extensión para manejar títulos personalizados
+extension CompleteBook {
+    // Obtener el título para mostrar (personalizado o original)
+    var displayTitle: String {
+        // Buscar si hay un título personalizado
+        if let customTitle = CustomTitleService.shared.getCustomTitle(for: id) {
+            return customTitle
+        }
+        // Si no, devolver el título original
+        return book.title
+    }
+    
+    // Actualizar el título personalizado
+    func updateCustomTitle(_ newTitle: String) {
+        CustomTitleService.shared.saveCustomTitle(bookId: id, title: newTitle)
+    }
+    
+    // Eliminar el título personalizado
+    func removeCustomTitle() {
+        CustomTitleService.shared.removeCustomTitle(for: id)
     }
 }
 

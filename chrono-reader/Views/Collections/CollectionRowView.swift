@@ -199,10 +199,73 @@ struct CollectionDetailView: View {
                     ForEach(books) { book in
                         VStack(alignment: .leading, spacing: 8) {
                             // Portada del libro con gesto de toque
-                            Group {
+                            ZStack(alignment: .bottom) {
+                                // Base: portada
                                 bookCover(for: book)
                                     .aspectRatio(contentMode: .fill)
                                     .clipped()
+                                
+                                // Gradiente para mejorar legibilidad
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        .clear,
+                                        .clear,
+                                        .black.opacity(0.15),
+                                        .black.opacity(0.3)
+                                    ]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                                
+                                // Barra de progreso y etiquetas
+                                if book.book.progress > 0 {
+                                    VStack(spacing: 0) {
+                                        Spacer()
+                                        
+                                        // Etiquetas antes de la barra
+                                        HStack {
+                                            // Fecha en la izquierda
+                                            if let lastReadDate = book.book.lastReadDate {
+                                                Text(formatLastReadDate(lastReadDate))
+                                                    .font(.system(size: 8, weight: .medium))
+                                                    .foregroundColor(.white)
+                                                    .padding(.horizontal, 5)
+                                                    .padding(.vertical, 1)
+                                                    .background(Color.black.opacity(0.4))
+                                                    .cornerRadius(3)
+                                            }
+                                            
+                                            Spacer()
+                                            
+                                            // Porcentaje en la derecha
+                                            Text("\(Int(book.book.progress * 100))%")
+                                                .font(.system(size: 8, weight: .bold))
+                                                .foregroundColor(.white)
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 1)
+                                                .background(Color.black.opacity(0.4))
+                                                .cornerRadius(3)
+                                        }
+                                        .padding(.horizontal, 6)
+                                        .padding(.bottom, 4)
+                                        
+                                        // Barra de progreso en el borde inferior
+                                        GeometryReader { geometry in
+                                            ZStack(alignment: .leading) {
+                                                // Fondo de la barra
+                                                Rectangle()
+                                                    .fill(Color.black.opacity(0.7))
+                                                    .frame(height: 3)
+                                                
+                                                // Progreso
+                                                Rectangle()
+                                                    .fill(collection.color)
+                                                    .frame(width: geometry.size.width * CGFloat(book.book.progress), height: 3)
+                                            }
+                                        }
+                                        .frame(height: 3)
+                                    }
+                                }
                             }
                             .frame(minWidth: 0, maxWidth: .infinity)
                             .aspectRatio(2/3, contentMode: .fit)
@@ -217,11 +280,11 @@ struct CollectionDetailView: View {
                                     }
                                     
                                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                        print("Abriendo cómic desde colección: \(book.book.title)")
+                                        print("Abriendo cómic desde colección: \(book.displayTitle)")
                                         showingComicViewer = true
                                     }
                                 } else {
-                                    print("Abrir libro: \(book.book.title)")
+                                    print("Abrir libro: \(book.displayTitle)")
                                 }
                             }
                             .brightness(animateTransition && selectedBook?.id == book.id ? 0.1 : 0)
@@ -255,7 +318,7 @@ struct CollectionDetailView: View {
                             .contentShape(Rectangle())
                             .onDrag {
                                 if let index = books.firstIndex(where: { $0.id == book.id }) {
-                                    print("Iniciando arrastre de libro: \(book.book.title) [índice: \(index)]")
+                                    print("Iniciando arrastre de libro: \(book.displayTitle) [índice: \(index)]")
                                     withAnimation(.easeIn(duration: 0.2)) {
                                         isDragging = true
                                         draggedBookIndex = index
@@ -275,7 +338,7 @@ struct CollectionDetailView: View {
                         
                             // Información del libro
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(book.book.title)
+                                Text(book.displayTitle)
                                     .font(.subheadline)
                                     .fontWeight(.medium)
                                     .lineLimit(2)
@@ -284,19 +347,6 @@ struct CollectionDetailView: View {
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
-                                
-                                // Barra de progreso
-                                if book.book.progress > 0 {
-                                    HStack(spacing: 4) {
-                                        ProgressBar(value: book.book.progress, height: 4, color: collection.color)
-                                            .frame(height: 4)
-                                        
-                                        Text("\(Int(book.book.progress * 100))%")
-                                            .font(.system(size: 10, weight: .medium))
-                                            .foregroundColor(collection.color)
-                                    }
-                                    .padding(.top, 2)
-                                }
                             }
                         }
                         .opacity(isDragging ? 0.7 : 1.0)
@@ -327,27 +377,43 @@ struct CollectionDetailView: View {
                 animateTransition = false
             }
             
-            // Actualizar la vista para mostrar el progreso actualizado
-            viewModel.objectWillChange.send()
+            // Asegurar que los libros se actualicen correctamente
+            DispatchQueue.main.async {
+                // Cargar libros disponibles para asegurar datos actualizados
+                viewModel.loadAvailableBooks()
+                
+                // Verificar si el libro sigue en la colección después de actualizar
+                // Esta es una solución simple pero efectiva
+                if let updatedBookID = selectedBook?.id,
+                   let collectionIndex = viewModel.collections.firstIndex(where: { $0.id == collection.id }),
+                   !viewModel.collections[collectionIndex].books.contains(updatedBookID) {
+                    
+                    print("Libro desapareció de la colección, restaurando: \(selectedBook?.displayTitle ?? "Unknown")")
+                    
+                    // Restaurar el libro a la colección
+                    var updatedCollection = collection
+                    updatedCollection.books.append(updatedBookID)
+                    viewModel.collections[collectionIndex] = updatedCollection
+                    viewModel.saveCollections()
+                }
+                
+                // Actualizar la UI
+                viewModel.objectWillChange.send()
+            }
         }) {
             if let book = selectedBook {
                 EnhancedComicViewer(book: book, onProgressUpdate: { updatedBook in
                     print("Progreso actualizado desde colección: \(updatedBook.book.progress * 100)%")
                     
-                    // 1. Actualizar en el modelo de colecciones
-                    viewModel.updateBookProgress(updatedBook)
+                    // Mantener una referencia al libro actualizado
+                    selectedBook = updatedBook
                     
-                    // 2. Enviar también la notificación directa al HomeViewModel
-                    DispatchQueue.main.async {
-                        NotificationCenter.default.post(
-                            name: Notification.Name("BookProgressUpdated"),
-                            object: nil,
-                            userInfo: ["book": updatedBook]
-                        )
-                    }
-                    
-                    // 3. Forzar actualización de la vista de colección
-                    viewModel.objectWillChange.send()
+                    // Enviar notificación al HomeViewModel
+                    NotificationCenter.default.post(
+                        name: Notification.Name("BookProgressUpdated"),
+                        object: nil,
+                        userInfo: ["book": updatedBook]
+                    )
                 })
             }
         }
@@ -369,6 +435,20 @@ struct CollectionDetailView: View {
                         .foregroundColor(.gray)
                 }
             }
+        }
+    }
+    
+    private func formatLastReadDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "Hoy"
+        } else if calendar.isDateInYesterday(date) {
+            return "Ayer"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            formatter.timeStyle = .none
+            return formatter.string(from: date)
         }
     }
 }
@@ -426,7 +506,7 @@ struct BookDropDelegate: DropDelegate {
             
             print("Libros reordenados, actualizando colección: \(collection.name)")
             for (i, book) in updatedBooks.enumerated() {
-                print("[\(i)] - \(book.book.title)")
+                print("[\(i)] - \(book.displayTitle)")
             }
             
             // Actualizar el orden en el modelo

@@ -38,7 +38,7 @@ class ComicViewerModel: ObservableObject {
     
     init(book: CompleteBook) {
         self.book = book
-        print("Inicializando ComicViewerModel para: \(book.book.title)")
+        print("Inicializando ComicViewerModel para: \(book.displayTitle)")
     }
     
     func loadPages() {
@@ -257,7 +257,7 @@ struct EnhancedComicViewer: View {
             
             Spacer()
             
-            Text(model.book.book.title)
+            Text(model.book.displayTitle)
                 .font(.headline)
                 .foregroundColor(.white)
                 .lineLimit(1)

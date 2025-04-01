@@ -10,13 +10,80 @@ struct StackedCoversView: View {
         ZStack {
             // Mostrar hasta 3 portadas escalonadas
             ForEach(0..<min(books.count, maxCovers), id: \.self) { index in
-                bookCover(for: books[index])
-                    .frame(width: 150, height: 220)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 3)
-                    .rotationEffect(.degrees(Double(index * 5) - 5))
-                    .offset(x: CGFloat(index * 20) - 20, y: 0)
-                    .zIndex(Double(maxCovers - index))
+                ZStack(alignment: .bottom) {
+                    // Portada base
+                    bookCover(for: books[index])
+                        .aspectRatio(contentMode: .fill)
+                        .clipped()
+                    
+                    // Gradiente para mejorar legibilidad
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            .clear,
+                            .clear,
+                            .black.opacity(0.15),
+                            .black.opacity(0.3)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    
+                    // Barra de progreso
+                    if books[index].book.progress > 0 {
+                        VStack(spacing: 0) {
+                            Spacer()
+                            
+                            // Etiquetas antes de la barra
+                            HStack {
+                                // Fecha a la izquierda si está disponible
+                                if let lastReadDate = books[index].book.lastReadDate {
+                                    Text(formatLastReadDate(lastReadDate))
+                                        .font(.system(size: 8, weight: .medium))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Color.black.opacity(0.4))
+                                        .cornerRadius(3)
+                                }
+                                
+                                Spacer()
+                                
+                                // Porcentaje a la derecha
+                                Text("\(Int(books[index].book.progress * 100))%")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(Color.black.opacity(0.4))
+                                    .cornerRadius(3)
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.bottom, 4)
+                            
+                            // Barra de progreso en el borde inferior
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    // Fondo de la barra
+                                    Rectangle()
+                                        .fill(Color.black.opacity(0.7))
+                                        .frame(height: 3)
+                                    
+                                    // Progreso
+                                    Rectangle()
+                                        .fill(Color.blue) // Usar un color estándar aquí
+                                        .frame(width: geo.size.width * CGFloat(books[index].book.progress), height: 3)
+                                }
+                            }
+                            .frame(height: 3)
+                        }
+                    }
+                }
+                .frame(width: 150, height: 220)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 3)
+                .rotationEffect(.degrees(Double(index * 5) - 5))
+                .offset(x: CGFloat(index * 20) - 20, y: 0)
+                .zIndex(Double(maxCovers - index))
             }
             
             // Si no hay libros, mostrar un placeholder
@@ -53,6 +120,20 @@ struct StackedCoversView: View {
             }
         }
     }
+    
+    private func formatLastReadDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "Hoy"
+        } else if calendar.isDateInYesterday(date) {
+            return "Ayer"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            formatter.timeStyle = .none
+            return formatter.string(from: date)
+        }
+    }
 }
 
 // Nueva vista para portadas alineadas
@@ -67,15 +148,82 @@ struct ScatteredCoversView: View {
                 
                 // Mostrar hasta maxCovers portadas en línea horizontal
                 ForEach(0..<min(books.count, maxCovers), id: \.self) { index in
-                    bookCover(for: books[index])
-                        .frame(width: 112, height: 168)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .contentShape(Rectangle())
-                        .shadow(color: .black.opacity(0.15), radius: 2, x: 0, y: 1)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                    ZStack(alignment: .bottom) {
+                        // Portada base
+                        bookCover(for: books[index])
+                            .aspectRatio(contentMode: .fill)
+                            .clipped()
+                        
+                        // Gradiente para mejorar legibilidad
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                .clear,
+                                .clear,
+                                .black.opacity(0.15),
+                                .black.opacity(0.3)
+                            ]),
+                            startPoint: .top,
+                            endPoint: .bottom
                         )
+                        
+                        // Barra de progreso
+                        if books[index].book.progress > 0 {
+                            VStack(spacing: 0) {
+                                Spacer()
+                                
+                                // Etiquetas antes de la barra
+                                HStack {
+                                    // Fecha a la izquierda si está disponible
+                                    if let lastReadDate = books[index].book.lastReadDate {
+                                        Text(formatLastReadDate(lastReadDate))
+                                            .font(.system(size: 8, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 1)
+                                            .background(Color.black.opacity(0.4))
+                                            .cornerRadius(3)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    // Porcentaje a la derecha
+                                    Text("\(Int(books[index].book.progress * 100))%")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Color.black.opacity(0.4))
+                                        .cornerRadius(3)
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.bottom, 4)
+                                
+                                // Barra de progreso en el borde inferior
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        // Fondo de la barra
+                                        Rectangle()
+                                            .fill(Color.black.opacity(0.7))
+                                            .frame(height: 3)
+                                        
+                                        // Progreso
+                                        Rectangle()
+                                            .fill(Color.blue) // Usar un color estándar aquí
+                                            .frame(width: geo.size.width * CGFloat(books[index].book.progress), height: 3)
+                                    }
+                                }
+                                .frame(height: 3)
+                            }
+                        }
+                    }
+                    .frame(width: 112, height: 168)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .contentShape(Rectangle())
+                    .shadow(color: .black.opacity(0.15), radius: 2, x: 0, y: 1)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                    )
                 }
                 
                 // Si no hay libros, mostrar un placeholder
@@ -117,6 +265,20 @@ struct ScatteredCoversView: View {
             }
         }
     }
+    
+    private func formatLastReadDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "Hoy"
+        } else if calendar.isDateInYesterday(date) {
+            return "Ayer"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            formatter.timeStyle = .none
+            return formatter.string(from: date)
+        }
+    }
 }
 
 // Nueva vista para portadas animadas
@@ -141,15 +303,82 @@ struct AnimatedCoversView: View {
             
             HStack(spacing: spacing) {
                 ForEach(0..<books.count, id: \.self) { index in
-                    bookCover(for: books[index])
-                        .frame(width: coverWidth, height: 168)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .contentShape(Rectangle())
-                        .shadow(color: .black.opacity(0.15), radius: 2, x: 0, y: 1)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                    ZStack(alignment: .bottom) {
+                        // Portada base
+                        bookCover(for: books[index])
+                            .aspectRatio(contentMode: .fill)
+                            .clipped()
+                        
+                        // Gradiente para mejorar legibilidad
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                .clear,
+                                .clear,
+                                .black.opacity(0.15),
+                                .black.opacity(0.3)
+                            ]),
+                            startPoint: .top,
+                            endPoint: .bottom
                         )
+                        
+                        // Barra de progreso
+                        if books[index].book.progress > 0 {
+                            VStack(spacing: 0) {
+                                Spacer()
+                                
+                                // Etiquetas antes de la barra
+                                HStack {
+                                    // Fecha a la izquierda si está disponible
+                                    if let lastReadDate = books[index].book.lastReadDate {
+                                        Text(formatLastReadDate(lastReadDate))
+                                            .font(.system(size: 8, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 5)
+                                            .padding(.vertical, 1)
+                                            .background(Color.black.opacity(0.4))
+                                            .cornerRadius(3)
+                                    }
+                                    
+                                    Spacer()
+                                    
+                                    // Porcentaje a la derecha
+                                    Text("\(Int(books[index].book.progress * 100))%")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(Color.black.opacity(0.4))
+                                        .cornerRadius(3)
+                                }
+                                .padding(.horizontal, 6)
+                                .padding(.bottom, 4)
+                                
+                                // Barra de progreso en el borde inferior
+                                GeometryReader { geo in
+                                    ZStack(alignment: .leading) {
+                                        // Fondo de la barra
+                                        Rectangle()
+                                            .fill(Color.black.opacity(0.7))
+                                            .frame(height: 3)
+                                        
+                                        // Progreso
+                                        Rectangle()
+                                            .fill(Color.blue) // Usar un color estándar aquí
+                                            .frame(width: geo.size.width * CGFloat(books[index].book.progress), height: 3)
+                                    }
+                                }
+                                .frame(height: 3)
+                            }
+                        }
+                    }
+                    .frame(width: coverWidth, height: 168)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .contentShape(Rectangle())
+                    .shadow(color: .black.opacity(0.15), radius: 2, x: 0, y: 1)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                    )
                 }
             }
             .padding(.horizontal, 16)
@@ -180,6 +409,20 @@ struct AnimatedCoversView: View {
                         .foregroundColor(.gray)
                 }
             }
+        }
+    }
+    
+    private func formatLastReadDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return "Hoy"
+        } else if calendar.isDateInYesterday(date) {
+            return "Ayer"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            formatter.timeStyle = .none
+            return formatter.string(from: date)
         }
     }
 } 

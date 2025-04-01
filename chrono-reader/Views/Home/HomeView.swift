@@ -17,18 +17,33 @@ import BackgroundTasks
 typealias ZipArchive = ZIPFoundation.Archive
 typealias RarArchive = Unrar.Archive
 
+enum SortOption: String, CaseIterable, Identifiable {
+    case intelligent = "Auto"
+    case alphabeticalAsc = "A-Z"
+    case alphabeticalDesc = "Z-A"
+    case importDate = "Fecha de importación"
+    
+    var id: String { self.rawValue }
+}
+
 class HomeViewModel: ObservableObject {
     @Published var books: [CompleteBook] = []
     @Published var isLoading: Bool = false
     @Published var searchText: String = ""
     @Published var isSearching: Bool = false
+    @AppStorage("selectedCategory") var storedCategory: String = BookCategory.all.rawValue
     @Published var selectedCategory: BookCategory = .all
     @Published var isImporting: Bool = false
     @Published var isProcessingFiles: Bool = false // Nueva variable para controlar el estado de carga
+    @AppStorage("gridLayout") var storedGridLayout: Int = 0
     @Published var gridLayout: Int = 0 // 0: Default, 1: List, 2: Large
     @AppStorage("isHeaderCompact") var storedIsHeaderCompact: Bool = false
     @Published var isHeaderCompact: Bool = false // Variable para controlar si el encabezado está compacto
     @Published var collectionsViewModel = CollectionsViewModel() // Agregamos el ViewModel de colecciones
+    
+    // Configuración de las secciones del Home
+    @AppStorage("showRecentSection") var showRecentSection: Bool = true
+    @AppStorage("showCollectionsSection") var showCollectionsSection: Bool = true
     
     // Toast notification state
     @Published var showToast: Bool = false
@@ -41,17 +56,36 @@ class HomeViewModel: ObservableObject {
         case all = "Todos"
         case books = "Libros"
         case comics = "Comics"
-        case recent = "Recientes"
         case favorites = "Favoritos"
 
         var id: String { self.rawValue }
     }
+    
+    @AppStorage("selectedSortOption") var storedSortOption: String = SortOption.intelligent.rawValue
+    @Published var selectedSortOption: SortOption = .intelligent
     
     init() {
         loadBooks()
         
         // Asegurarse de que el CollectionsViewModel tenga los libros actualizados
         collectionsViewModel.loadAvailableBooks()
+        
+        // Inicializar el ordenamiento desde el almacenamiento
+        selectedSortOption = SortOption(rawValue: storedSortOption) ?? .intelligent
+        
+        // Inicializar la categoría desde el almacenamiento
+        print("Cargando categoría almacenada: \(storedCategory)")
+        if let category = BookCategory(rawValue: storedCategory) {
+            selectedCategory = category
+            print("Categoría inicializada a: \(category.rawValue)")
+        } else {
+            selectedCategory = .all
+            print("Categoría inicializada al valor por defecto: all")
+        }
+        
+        // Inicializar el modo de vista desde el almacenamiento
+        gridLayout = storedGridLayout
+        print("Modo de vista inicializado a: \(gridLayout)")
         
         // Registrar observador para actualizaciones de progreso
         NotificationCenter.default.addObserver(
@@ -76,6 +110,13 @@ class HomeViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Sincronizar gridLayout con storedGridLayout
+        $gridLayout
+            .sink { [weak self] newValue in
+                self?.storedGridLayout = newValue
+            }
+            .store(in: &cancellables)
+
         // Inicializar el estado del header desde el almacenamiento
         isHeaderCompact = storedIsHeaderCompact
     }
@@ -88,27 +129,93 @@ class HomeViewModel: ObservableObject {
         var filtered = books
 
         if !searchText.isEmpty {
-            filtered = filtered.filter { $0.book.title.lowercased().contains(searchText.lowercased()) ||
+            filtered = filtered.filter { $0.displayTitle.lowercased().contains(searchText.lowercased()) ||
                                              $0.book.author.lowercased().contains(searchText.lowercased()) }
         }
 
         switch selectedCategory {
         case .all:
-            return filtered
+            break
         case .books:
-            return filtered.filter { $0.book.type == .epub || $0.book.type == .pdf }
+            filtered = filtered.filter { $0.book.type == .epub || $0.book.type == .pdf }
         case .comics:
-            return filtered.filter { $0.book.type == .cbr || $0.book.type == .cbz }
-        case .recent:
-            // Ordenar por fecha de última lectura (más reciente primero)
-            return filtered.filter { $0.book.progress > 0 }.sorted { 
-                guard let date1 = $0.book.lastReadDate else { return false }
-                guard let date2 = $1.book.lastReadDate else { return true }
-                return date1 > date2
-            }
+            filtered = filtered.filter { $0.book.type == .cbz || $0.book.type == .cbr }
         case .favorites:
-            return filtered.filter { $0.book.isFavorite }
+            filtered = filtered.filter { $0.book.isFavorite }
         }
+        
+        // Apply sorting
+        switch selectedSortOption {
+        case .alphabeticalAsc:
+            return filtered.sorted { (book1: CompleteBook, book2: CompleteBook) in
+                book1.displayTitle.localizedCompare(book2.displayTitle) == .orderedAscending
+            }
+        case .alphabeticalDesc:
+            return filtered.sorted { (book1: CompleteBook, book2: CompleteBook) in
+                book1.displayTitle.localizedCompare(book2.displayTitle) == .orderedDescending
+            }
+        case .importDate:
+            return filtered.sorted { (book1: CompleteBook, book2: CompleteBook) in
+                book1.book.lastReadDate ?? Date.distantPast > book2.book.lastReadDate ?? Date.distantPast
+            }
+        case .intelligent:
+            return filtered.sorted { (book1: CompleteBook, book2: CompleteBook) in
+                // 1. Priorizar favoritos
+                if book1.book.isFavorite != book2.book.isFavorite {
+                    return book1.book.isFavorite
+                }
+                
+                // 2. Priorizar libros en progreso (entre 0% y 100%)
+                let progress1 = book1.book.progress
+                let progress2 = book2.book.progress
+                if progress1 > 0 && progress1 < 1 && (progress2 == 0 || progress2 == 1) {
+                    return true
+                }
+                if progress2 > 0 && progress2 < 1 && (progress1 == 0 || progress1 == 1) {
+                    return false
+                }
+                
+                // 3. Priorizar por fecha de última lectura
+                let date1 = book1.book.lastReadDate ?? Date.distantPast
+                let date2 = book2.book.lastReadDate ?? Date.distantPast
+                if date1 != date2 {
+                    return date1 > date2
+                }
+                
+                // 4. Ordenar por serie y número si aplica
+                let series1 = extractSeriesInfo(from: book1.book.title.lowercased())
+                let series2 = extractSeriesInfo(from: book2.book.title.lowercased())
+                
+                if series1.name == series2.name {
+                    return series1.number < series2.number
+                }
+                
+                // 5. Si no hay otros criterios, ordenar alfabéticamente
+                return book1.book.title.localizedCompare(book2.book.title) == .orderedAscending
+            }
+        }
+    }
+    
+    private struct SeriesInfo {
+        let name: String
+        let number: Int
+    }
+    
+    private func extractSeriesInfo(from title: String) -> SeriesInfo {
+        // Regular expression to match patterns like "Series Name 01", "Series Name 1", etc.
+        let pattern = #"(.+?)\s*(\d+)$"#
+        
+        if let regex = try? NSRegularExpression(pattern: pattern),
+           let match = regex.firstMatch(in: title, range: NSRange(title.startIndex..., in: title)) {
+            let seriesName = String(title[Range(match.range(at: 1), in: title)!]).trimmingCharacters(in: .whitespaces)
+            let numberStr = String(title[Range(match.range(at: 2), in: title)!])
+            if let number = Int(numberStr) {
+                return SeriesInfo(name: seriesName, number: number)
+            }
+        }
+        
+        // If no match found, return the title as the name and a high number to sort it at the end
+        return SeriesInfo(name: title, number: Int.max)
     }
 
     var booksInProgress: [CompleteBook] {
@@ -497,11 +604,20 @@ class HomeViewModel: ObservableObject {
                 print("Libro guardado: \(book.book.title) - Progreso: \(book.book.progress * 100)%")
             }
             
-            // Notificar cambios en los libros para que se actualicen las colecciones
-            NotificationCenter.default.post(name: Notification.Name("BooksUpdated"), object: nil)
+            // Forzar sincronización con UserDefaults
+            UserDefaults.standard.synchronize()
             
-            // Forzar la actualización de la vista
-            objectWillChange.send()
+            // Actualizar los libros disponibles en el CollectionsViewModel con un pequeño retraso
+            // para asegurar que UserDefaults haya guardado los cambios
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.collectionsViewModel.loadAvailableBooks()
+                
+                // Notificar cambios en los libros para que se actualicen las colecciones
+                NotificationCenter.default.post(name: Notification.Name("BooksUpdated"), object: nil)
+                
+                // Forzar la actualización de la vista
+                self.objectWillChange.send()
+            }
         } catch {
             print("Error al codificar los libros para guardar: \(error)")
         }
@@ -862,6 +978,10 @@ class HomeViewModel: ObservableObject {
             var updatedBookCopy = updatedBook.book
             updatedBookCopy.pageCount = updatedBook.book.pageCount
             
+            // Preservar datos importantes del libro existente
+            updatedBookCopy.series = existingBook.book.series
+            updatedBookCopy.issueNumber = existingBook.book.issueNumber
+            
             let combinedBook = CompleteBook(
                 id: updatedBook.id,
                 title: updatedBook.book.title,
@@ -873,17 +993,19 @@ class HomeViewModel: ObservableObject {
                 cover: updatedBook.getCoverImage() ?? existingBook.getCoverImage(),
                 lastReadDate: updatedBook.book.lastReadDate,
                 lastPageOffsetPCT: updatedBook.lastPageOffsetPCT,
-                isFavorite: updatedBook.book.isFavorite
+                isFavorite: existingBook.book.isFavorite // Mantener el estado de favorito
             )
             
             // Actualizar el libro en la colección
             books[index] = combinedBook
             
-            // Guardar los cambios inmediatamente y notificar la actualización UI
+            // Actualizar el libro en CollectionsViewModel
             DispatchQueue.main.async {
+                self.collectionsViewModel.updateBookInCollections(combinedBook)
                 self.saveBooks()
                 // Forzar actualización de la UI
                 self.objectWillChange.send()
+                self.collectionsViewModel.objectWillChange.send()
                 print("Progreso actualizado y guardado para \(combinedBook.book.title): \(combinedBook.book.progress * 100)%")
                 print("Número de páginas actualizado: \(updatedBook.book.pageCount ?? 0)")
             }
@@ -956,6 +1078,23 @@ class HomeViewModel: ObservableObject {
             let updatedBook = book.withUpdatedFavorite(!book.book.isFavorite)
             books[index] = updatedBook
             saveBooks()
+        }
+    }
+
+    // Función para actualizar la categoría seleccionada
+    func updateSelectedCategory(_ category: BookCategory) {
+        selectedCategory = category
+        storedCategory = category.rawValue
+        print("Categoría actualizada a: \(category.rawValue), almacenada como: \(storedCategory)")
+        
+        // Si la nueva categoría es .all, forzar la actualización para que aparezcan las secciones
+        if category == .all {
+            // Forzar la recarga de colecciones
+            collectionsViewModel.loadCollections()
+            collectionsViewModel.loadAvailableBooks()
+            
+            // Forzar actualización de la vista
+            objectWillChange.send()
         }
     }
 
@@ -1091,26 +1230,51 @@ struct HomeView: View {
                 // Header fijo
                 headerView
             }
+            .onAppear {
+                print("⭐️ Home view appeared")
+                // Forzar la recarga de libros
+                viewModel.loadBooks()
+                // Forzar la recarga de colecciones
+                viewModel.collectionsViewModel.loadCollections()
+                viewModel.collectionsViewModel.loadAvailableBooks()
+                // Asegurarnos de que la categoría es all
+                if viewModel.selectedCategory != .all {
+                    viewModel.updateSelectedCategory(.all)
+                }
+                // Asegurarnos de que el gridLayout refleja el valor almacenado
+                viewModel.gridLayout = viewModel.storedGridLayout
+                // Forzar actualización de la vista
+                viewModel.objectWillChange.send()
+            }
         }
     }
     
     // Sección "Continuar leyendo"
     private var continueLeerSection: some View {
         Group {
-            if !viewModel.isSearching && !viewModel.booksInProgress.isEmpty && viewModel.selectedCategory == .all {
+            if !viewModel.isSearching && viewModel.selectedCategory == .all && !viewModel.booksInProgress.isEmpty && viewModel.showRecentSection {
                 VStack(alignment: .leading, spacing: 16) {
                     HeaderGradientText("Continuar leyendo", fontSize: 20)
                         .padding(.horizontal, 24)
 
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 16) {
+                        HStack(spacing: 20) {
                             ForEach(viewModel.booksInProgress) { book in
-                                BookItemView(book: book, onDelete: {
-                                    viewModel.deleteBook(book: book)
-                                }, onToggleFavorite: {
-                                    viewModel.toggleFavorite(book: book)
-                                })
-                                .frame(width: 150)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    BookItemView(book: book, showTitle: false, onDelete: {
+                                        viewModel.deleteBook(book: book)
+                                    }, onToggleFavorite: {
+                                        viewModel.toggleFavorite(book: book)
+                                    })
+                                    .frame(width: UIScreen.main.bounds.width / 2 - 30)
+                                    
+                                    Text(book.displayTitle)
+                                        .font(.system(size: 13, weight: .medium))
+                                        .lineLimit(1)
+                                        .foregroundColor(.primary)
+                                        .frame(width: UIScreen.main.bounds.width / 2 - 30, alignment: .leading)
+                                }
+                                .frame(width: UIScreen.main.bounds.width / 2 - 30)
                             }
                         }
                         .padding(.horizontal, 24)
@@ -1124,7 +1288,7 @@ struct HomeView: View {
     // Sección "Tus colecciones"
     private var coleccionesSection: some View {
         Group {
-            if !viewModel.isSearching && !viewModel.collectionsViewModel.collections.isEmpty && viewModel.selectedCategory == .all {
+            if !viewModel.isSearching && viewModel.selectedCategory == .all && !viewModel.collectionsViewModel.collections.isEmpty && viewModel.showCollectionsSection {
                 VStack(alignment: .leading, spacing: 16) {
                     HeaderGradientText("Tus colecciones", fontSize: 20)
                         .padding(.horizontal, 24)
@@ -1180,8 +1344,43 @@ struct HomeView: View {
                     .padding(.horizontal, 24)
 
                 Spacer()
+                
+                // Menú de ordenamiento
+                Menu {
+                    ForEach(SortOption.allCases) { option in
+                        Button(action: {
+                            withAnimation {
+                                viewModel.selectedSortOption = option
+                                viewModel.storedSortOption = option.rawValue
+                            }
+                        }) {
+                            HStack {
+                                Text(option.rawValue)
+                                if viewModel.selectedSortOption == option {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.up.arrow.down")
+                        Text(viewModel.selectedSortOption.rawValue)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .font(.subheadline)
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(.systemGray6))
+                    )
+                }
+                .padding(.trailing, 8)
 
-                // Botón para ajustar la vista de cuadrícula
+                // Botón para cambiar el layout de la cuadrícula
                 gridLayoutButton
             }
 
@@ -1209,6 +1408,7 @@ struct HomeView: View {
         Button(action: {
             withAnimation(.easeInOut(duration: 0.3)) {
                 viewModel.gridLayout = (viewModel.gridLayout + 1) % 3
+                viewModel.storedGridLayout = viewModel.gridLayout
             }
         }) {
             Group {
@@ -1325,22 +1525,17 @@ struct HomeView: View {
                 Button(action: {
                     viewModel.isImporting = true
                 }) {
-                    Image(systemName: "plus")
-                        .font(.title2)
-                        .foregroundColor(.primary)
-                        .padding(.trailing, 8)
-                        .padding(.top, 8)
-                }
-                
-                // Botón para reiniciar la biblioteca
-                Button(action: {
-                    showLibraryOptions()
-                }) {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title2)
-                        .foregroundColor(.primary)
-                        .padding(.trailing, 24)
-                        .padding(.top, 8)
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.badge.plus")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.appTheme())
+                    .cornerRadius(8)
+                    .padding(.trailing, 24)
+                    .padding(.top, 8)
                 }
             }
             .padding(.bottom, viewModel.isHeaderCompact ? 8 : 10) // Margen inferior reducido para mejor equilibrio
@@ -1361,7 +1556,11 @@ struct HomeView: View {
                                 CategoryButton(
                                     category: category,
                                     isSelected: viewModel.selectedCategory == category,
-                                    action: { viewModel.selectedCategory = category }
+                                    action: { 
+                                        withAnimation {
+                                            viewModel.updateSelectedCategory(category) 
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -1383,45 +1582,6 @@ struct HomeView: View {
             alignment: .bottom
         )
         .ignoresSafeArea(edges: .top)
-    }
-    
-    // Función para mostrar opciones de biblioteca
-    private func showLibraryOptions() {
-        let alert = UIAlertController(title: "Opciones de biblioteca", message: nil, preferredStyle: .actionSheet)
-        
-        alert.addAction(UIAlertAction(title: "Verificar y reparar archivos", style: .default) { _ in
-            viewModel.verifyAndRepairBookPaths()
-        })
-        
-        alert.addAction(UIAlertAction(title: "Reiniciar biblioteca", style: .destructive) { _ in
-            // Mostrar alerta de confirmación para reiniciar
-            let confirmAlert = UIAlertController(title: "Reiniciar biblioteca", message: "¿Estás seguro de que quieres borrar todos los libros y colecciones?", preferredStyle: .alert)
-            
-            confirmAlert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
-            confirmAlert.addAction(UIAlertAction(title: "Reiniciar", style: .destructive) { _ in
-                viewModel.resetToSampleBooks()
-            })
-            
-            // Presentar la alerta de confirmación
-            if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-               let rootViewController = windowScene.windows.first?.rootViewController {
-                rootViewController.present(confirmAlert, animated: true)
-            }
-        })
-        
-        alert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
-        
-        // Presentar el menú de opciones
-        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-           let rootViewController = windowScene.windows.first?.rootViewController {
-            if let popoverController = alert.popoverPresentationController {
-                // Para iPad, necesitamos especificar el origen del popover
-                popoverController.sourceView = rootViewController.view
-                popoverController.sourceRect = CGRect(x: rootViewController.view.bounds.midX, y: rootViewController.view.bounds.midY, width: 0, height: 0)
-                popoverController.permittedArrowDirections = []
-            }
-            rootViewController.present(alert, animated: true)
-        }
     }
 }
 

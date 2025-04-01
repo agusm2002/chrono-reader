@@ -22,13 +22,16 @@ struct BookGridUpdatedView: View {
         
         return LazyVGrid(columns: columns, spacing: 24) {
             ForEach(books) { book in
-                BookItemView(book: book, displayMode: .grid, 
+                VStack(alignment: .leading) {
+                    BookItemView(book: book, displayMode: .grid, 
                              onDelete: {
-                    onDelete?(book)
-                },
+                        onDelete?(book)
+                    },
                              onToggleFavorite: {
-                    onToggleFavorite?(book)
-                })
+                        onToggleFavorite?(book)
+                    })
+                    .frame(width: UIScreen.main.bounds.width / 2 - 30)
+                }
             }
         }
         .padding(.horizontal, 20)
@@ -49,7 +52,7 @@ struct BookGridUpdatedView: View {
                         .frame(width: 80)
                         
                         VStack(alignment: .leading, spacing: 6) {
-                            Text(book.book.title)
+                            Text(book.displayTitle)
                                 .font(.subheadline)
                                 .fontWeight(.medium)
                             
@@ -60,12 +63,12 @@ struct BookGridUpdatedView: View {
                             Spacer()
                             
                             HStack(spacing: 8) {
-                                ProgressBar(value: book.book.progress, height: 5)
+                                ProgressBar(value: book.book.progress, height: 5, color: Color.appTheme())
                                     .frame(height: 5)
                                 
                                 Text("\(Int(book.book.progress * 100))%")
                                     .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.blue)
+                                    .foregroundColor(Color.appTheme())
                             }
                             .padding(.top, 4)
                         }
@@ -100,7 +103,7 @@ struct BookGridUpdatedView: View {
                     })
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(book.book.title)
+                        Text(book.displayTitle)
                             .font(.headline)
                             .lineLimit(2)
                         
@@ -116,11 +119,11 @@ struct BookGridUpdatedView: View {
                                     .cornerRadius(4)
                                 
                                 Text(book.book.type.rawValue.uppercased())
-                                    .font(.system(size: 11, weight: .bold))
+                                    .font(.system(size: 11, weight: .medium))
                                     .padding(.horizontal, 6)
                                     .padding(.vertical, 2)
-                                    .background(badgeColor(for: book.book.type))
-                                    .foregroundColor(.white)
+                                    .background(Color.gray.opacity(0.15))
+                                    .foregroundColor(.primary)
                                     .cornerRadius(4)
                                 
                                 if let issue = book.book.issueNumber {
