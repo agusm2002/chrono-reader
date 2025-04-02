@@ -968,8 +968,7 @@ class HomeViewModel: ObservableObject {
         storedBooksData = nil
         
         // Resetear las colecciones
-        collectionsViewModel.collections.removeAll()
-        collectionsViewModel.saveCollections()
+        collectionsViewModel.clearAllCollections()
         
         // Cargar los libros de muestra
         loadSampleBooks()
@@ -1366,6 +1365,7 @@ struct HomeView: View {
                                 NavigationLink(destination: CollectionDetailView(collection: collection, viewModel: viewModel.collectionsViewModel)) {
                                     VStack(alignment: .leading, spacing: 0) {
                                         StackedCoversView(books: viewModel.collectionsViewModel.booksInCollection(collection))
+                                            .frame(height: 180)
                                             .padding(.top, 12)
                                             .padding(.horizontal, 10)
                                         
@@ -1383,7 +1383,7 @@ struct HomeView: View {
                                         .frame(maxWidth: .infinity)
                                         .background(Color.gray.opacity(0.1))
                                     }
-                                    .frame(width: 220)
+                                    .frame(width: 240)
                                     .background(
                                         RoundedRectangle(cornerRadius: 16)
                                             .fill(collection.color.opacity(0.15))

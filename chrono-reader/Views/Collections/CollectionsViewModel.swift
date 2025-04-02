@@ -486,6 +486,15 @@ class CollectionsViewModel: ObservableObject {
         self.sortedCollections = sorted
     }
     
+    // Método para borrar completamente todas las colecciones
+    func clearAllCollections() {
+        collections.removeAll()
+        storedCollectionsData = nil
+        sortedCollections.removeAll()
+        objectWillChange.send()
+        print("Todas las colecciones han sido eliminadas completamente")
+    }
+    
     private func getCollectionProgress(_ collection: Collection) -> Double {
         let books = availableBooks.filter { collection.books.contains($0.id) }
         if books.isEmpty { return 0 }

@@ -172,22 +172,26 @@ struct EnhancedComicViewer: View {
                 loadingView
             } else if !model.pages.isEmpty {
                 ComicViewerContainer(model: model)
+                    .edgesIgnoringSafeArea(.all)
             } else {
                 errorView
             }
             
             // Overlay de controles
             if model.showControls {
-                VStack {
+                VStack(spacing: 0) {
                     topBar
                     Spacer()
                     bottomBar
                 }
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.2), value: model.showControls)
+                .edgesIgnoringSafeArea(.all)
             }
         }
-        .statusBar(hidden: !model.showControls)
+        .statusBar(hidden: true)
+        .navigationBarHidden(true)
+        .edgesIgnoringSafeArea(.all)
         .onTapGesture {
             withAnimation {
                 model.showControls.toggle()
@@ -478,6 +482,16 @@ class IVPagingController: UIViewController {
         setupGestures()
     }
     
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // Actualizar el layout cuando cambia el tamaño de la vista
+        let newLayout = createLayout()
+        collectionView.setCollectionViewLayout(newLayout, animated: false)
+        
+        // Asegurar que el collectionView ocupe todo el espacio disponible
+        collectionView.frame = view.bounds
+    }
+    
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         
@@ -491,8 +505,8 @@ class IVPagingController: UIViewController {
         // Crear el layout según el modo de lectura
         layout = createLayout()
         
-        // Configurar el collection view
-        collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
+        // Configurar el collection view para usar todo el espacio disponible
+        collectionView = UICollectionView(frame: UIScreen.main.bounds, collectionViewLayout: layout)
         collectionView.backgroundColor = .black
         collectionView.isPagingEnabled = true
         collectionView.showsHorizontalScrollIndicator = false
@@ -500,14 +514,20 @@ class IVPagingController: UIViewController {
         collectionView.delegate = self
         collectionView.dataSource = self
         collectionView.contentInsetAdjustmentBehavior = .never
+        collectionView.contentInset = .zero
+        
+        // Asegurarse de que no haya ajustes de SafeArea que afecten el tamaño
+        if #available(iOS 11.0, *) {
+            collectionView.insetsLayoutMarginsFromSafeArea = false
+        }
         
         // Registrar la celda
         collectionView.register(ComicPageCell.self, forCellWithReuseIdentifier: "PageCell")
         
-        // Añadir a la vista
+        // Añadir a la vista asegurando que cubra toda la pantalla
         view.addSubview(collectionView)
         
-        // Configurar constraints
+        // Configurar constraints para cubrir todo
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -636,26 +656,32 @@ class IVPagingController: UIViewController {
     private func createLayout() -> UICollectionViewFlowLayout {
         let layout = UICollectionViewFlowLayout()
         
+        // Obtener el tamaño real disponible, incluidas las áreas seguras
+        let fullScreenSize = UIScreen.main.bounds.size
+        
         if model.readingMode.isVertical {
             // Layout vertical para webtoons
             layout.scrollDirection = .vertical
             layout.minimumLineSpacing = 0
             layout.minimumInteritemSpacing = 0
-            layout.itemSize = CGSize(width: view.bounds.width, height: view.bounds.height)
+            layout.itemSize = CGSize(width: fullScreenSize.width, height: fullScreenSize.height)
         } else {
             // Layout horizontal para cómics/manga
             layout.scrollDirection = .horizontal
             layout.minimumLineSpacing = 0
             layout.minimumInteritemSpacing = 0
             
-            if model.doublePaged && view.bounds.width > view.bounds.height {
+            if model.doublePaged && fullScreenSize.width > fullScreenSize.height {
                 // Modo de página doble para dispositivos en landscape
-                layout.itemSize = CGSize(width: view.bounds.width / 2, height: view.bounds.height)
+                layout.itemSize = CGSize(width: fullScreenSize.width / 2, height: fullScreenSize.height)
             } else {
-                // Modo de página única
-                layout.itemSize = CGSize(width: view.bounds.width, height: view.bounds.height)
+                // Modo de página única - usar el ancho completo disponible
+                layout.itemSize = CGSize(width: fullScreenSize.width, height: fullScreenSize.height)
             }
         }
+        
+        // Asegurar que no haya márgenes
+        layout.sectionInset = UIEdgeInsets.zero
         
         return layout
     }
@@ -820,6 +846,7 @@ class ComicPageCell: UICollectionViewCell {
     var scrollView: ZoomingScrollView
     
     override init(frame: CGRect) {
+        // Usar el frame proporcionado en lugar de un tamaño fijo de pantalla
         scrollView = ZoomingScrollView(frame: frame)
         super.init(frame: frame)
         setupViews()
@@ -833,7 +860,7 @@ class ComicPageCell: UICollectionViewCell {
         // Añadir el scroll view a la vista
         contentView.addSubview(scrollView)
         
-        // Configurar constraints
+        // Configurar constraints para ocupar todo el espacio
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: contentView.topAnchor),
@@ -841,6 +868,15 @@ class ComicPageCell: UICollectionViewCell {
             scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
         ])
+        
+        // Asegurarse que la celda no tenga espacios adicionales
+        contentView.clipsToBounds = true
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Asegurar que el scrollView tenga el tamaño correcto
+        scrollView.frame = contentView.bounds
     }
     
     func configure(with image: UIImage, readingMode: ReadingMode) {
@@ -889,21 +925,38 @@ class ZoomingScrollView: UIScrollView {
         delegate = self
         contentInsetAdjustmentBehavior = .never
         
+        // Desactivar el rebote para un mejor control del contenido
+        alwaysBounceHorizontal = false
+        alwaysBounceVertical = false
+        bounces = false
+        
         // Configurar zoom
         minimumZoomScale = 1.0
         maximumZoomScale = 3.0
         bouncesZoom = true
+        
+        // Asegurarse de que el scrollView ignore los márgenes de seguridad
+        if #available(iOS 11.0, *) {
+            contentInsetAdjustmentBehavior = .never
+            insetsLayoutMarginsFromSafeArea = false
+            verticalScrollIndicatorInsets = .zero
+            horizontalScrollIndicatorInsets = .zero
+        }
     }
     
     private func setupWrapper() {
         // Crear un contenedor que coincide con el tamaño de la pantalla
-        wrapper = UIView(frame: .zero)
+        let screenBounds = UIScreen.main.bounds
+        wrapper = UIView(frame: screenBounds)
         wrapper.translatesAutoresizingMaskIntoConstraints = false
+        wrapper.clipsToBounds = true
         addSubview(wrapper)
         
-        // El wrapper se ajustará al tamaño del scroll view
+        // El wrapper debe ocupar todo el espacio disponible
         NSLayoutConstraint.activate([
             wrapper.centerYAnchor.constraint(equalTo: centerYAnchor),
+            wrapper.centerXAnchor.constraint(equalTo: centerXAnchor),
+            wrapper.widthAnchor.constraint(equalTo: widthAnchor),
             wrapper.heightAnchor.constraint(equalTo: heightAnchor)
         ])
     }
@@ -912,6 +965,10 @@ class ZoomingScrollView: UIScrollView {
         imageView = UIImageView()
         imageView.contentMode = .scaleAspectFit
         imageView.clipsToBounds = true
+        imageView.backgroundColor = .clear
+        imageView.layer.allowsEdgeAntialiasing = true
+        imageView.layer.magnificationFilter = .linear
+        imageView.layer.minificationFilter = .trilinear
         imageView.translatesAutoresizingMaskIntoConstraints = false
         wrapper.addSubview(imageView)
     }
@@ -949,55 +1006,84 @@ class ZoomingScrollView: UIScrollView {
     }
     
     func didUpdateSize(size: CGSize) {
-        // Centra la imagen en el wrapper
-        postImageSetConstraints.append(contentsOf: [
-            imageView.centerXAnchor.constraint(equalTo: wrapper.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: wrapper.centerYAnchor),
-        ])
+        // Limpiar restricciones previas
+        NSLayoutConstraint.deactivate(postImageSetConstraints)
+        postImageSetConstraints.removeAll()
         
-        // Ajusta el tamaño según si es más ancho o alto que la vista
-        if size.width <= frame.width {
+        // Asegurarse de que la imagen ocupe el tamaño completo disponible
+        // mientras mantiene su relación de aspecto
+        let imageAspect = size.width / size.height
+        let viewAspect = bounds.width / bounds.height
+        
+        // Decidir cómo ajustar la imagen para llenar la pantalla
+        if imageAspect > viewAspect {
+            // La imagen es más ancha proporcionalmente - ajustar por ancho
             postImageSetConstraints.append(contentsOf: [
-                wrapper.centerXAnchor.constraint(equalTo: centerXAnchor),
-                wrapper.widthAnchor.constraint(equalTo: widthAnchor),
+                imageView.widthAnchor.constraint(equalTo: wrapper.widthAnchor),
+                imageView.centerXAnchor.constraint(equalTo: wrapper.centerXAnchor),
+                imageView.centerYAnchor.constraint(equalTo: wrapper.centerYAnchor),
+                imageView.heightAnchor.constraint(equalTo: imageView.widthAnchor, multiplier: size.height / size.width)
             ])
         } else {
-            let ratio = size.width / size.height
-            let targetHeight = frame.width / ratio
-            
+            // La imagen es más alta proporcionalmente - ajustar por altura
             postImageSetConstraints.append(contentsOf: [
-                wrapper.centerXAnchor.constraint(equalTo: centerXAnchor),
-                wrapper.widthAnchor.constraint(equalTo: widthAnchor),
+                imageView.heightAnchor.constraint(equalTo: wrapper.heightAnchor),
+                imageView.centerXAnchor.constraint(equalTo: wrapper.centerXAnchor),
+                imageView.centerYAnchor.constraint(equalTo: wrapper.centerYAnchor),
+                imageView.widthAnchor.constraint(equalTo: imageView.heightAnchor, multiplier: size.width / size.height)
             ])
         }
         
-        // Configura el tamaño de la imagen
-        let widthRatio = frame.width / size.width
-        let heightRatio = frame.height / size.height
-        let minRatio = min(widthRatio, heightRatio)
-        
-        postImageSetConstraints.append(contentsOf: [
-            imageView.widthAnchor.constraint(equalToConstant: size.width * minRatio),
-            imageView.heightAnchor.constraint(equalToConstant: size.height * minRatio)
-        ])
-        
-        // Activa las restricciones
+        // Activar las restricciones
         NSLayoutConstraint.activate(postImageSetConstraints)
         
-        // Actualiza el contenido del scroll view
+        // Actualizar el contenido del scroll view
         contentSize = wrapper.frame.size
         
-        // Establece la posición inicial del zoom
-        setZoomPosition()
+        // Aplicar centrado inicial
+        DispatchQueue.main.async {
+            self.setZoomPosition()
+        }
     }
     
     func setZoomPosition() {
-        guard contentSize.width > frame.width else {
-            return
+        // Para centrar la imagen inicialmente, usamos contenido más amplio y aplicamos insets
+        // Esto asegura que las imágenes estén centradas correctamente y el zoom funcione bien
+        if let image = imageView.image {
+            let imageSize = image.size
+            let viewSize = bounds.size
+            
+            // Calcular el tamaño que la imagen debería tener a escala 1
+            let horizontalScale = viewSize.width / imageSize.width
+            let verticalScale = viewSize.height / imageSize.height
+            
+            // Determinar qué escala usar para llenar la pantalla manteniendo la relación de aspecto
+            let minScale = min(horizontalScale, verticalScale)
+            
+            // Calcular las dimensiones de la imagen escalada
+            let scaledWidth = imageSize.width * minScale
+            let scaledHeight = imageSize.height * minScale
+            
+            // Calcular los insets para centrar
+            var horizontalInset: CGFloat = 0
+            var verticalInset: CGFloat = 0
+            
+            if scaledWidth < viewSize.width {
+                horizontalInset = (viewSize.width - scaledWidth) / 2
+            }
+            
+            if scaledHeight < viewSize.height {
+                verticalInset = (viewSize.height - scaledHeight) / 2
+            }
+            
+            // Aplicar insets para centrar
+            contentInset = UIEdgeInsets(
+                top: verticalInset,
+                left: horizontalInset,
+                bottom: verticalInset,
+                right: horizontalInset
+            )
         }
-        
-        // Ajustar la posición según la dirección de lectura (RTL o LTR)
-        // Por defecto, no hacemos nada para LTR
     }
     
     @objc private func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
@@ -1006,36 +1092,55 @@ class ZoomingScrollView: UIScrollView {
     }
     
     func handleZoom(to point: CGPoint, animated: Bool) {
-        let currentScale = zoomScale
-        let minScale = minimumZoomScale
-        let maxScale = maximumZoomScale
-        
-        if minScale == maxScale, minScale > 1 {
-            return
+        // Si estamos en zoom mínimo, hacer zoom a la ubicación tocada
+        // Si estamos en zoom aumentado, volver al zoom mínimo
+        if zoomScale <= minimumZoomScale + 0.01 {
+            // Calcular el rectángulo para hacer zoom
+            let width = bounds.width / maximumZoomScale
+            let height = bounds.height / maximumZoomScale
+            
+            // Centrar en el punto tocado
+            let zoomX = point.x - (width / 2)
+            let zoomY = point.y - (height / 2)
+            
+            // Crear el rectángulo para zoom
+            let zoomRect = CGRect(x: zoomX, y: zoomY, width: width, height: height)
+            
+            // Hacer zoom a ese rectángulo
+            zoom(to: zoomRect, animated: animated)
+        } else {
+            // Volver al tamaño normal
+            setZoomScale(minimumZoomScale, animated: animated)
         }
-        
-        let toScale = maxScale
-        let finalScale = (currentScale == minScale) ? toScale : minScale
-        let zoomRect = zoomRectForScale(scale: finalScale, center: point)
-        zoom(to: zoomRect, animated: animated)
-    }
-    
-    func zoomRectForScale(scale: CGFloat, center: CGPoint) -> CGRect {
-        var zoomRect = CGRect.zero
-        zoomRect.size.height = frame.size.height / scale
-        zoomRect.size.width = frame.size.width / scale
-        let newCenter = convert(center, from: self)
-        zoomRect.origin.x = newCenter.x - (zoomRect.size.width / 2.0)
-        zoomRect.origin.y = newCenter.y - (zoomRect.size.height / 2.0)
-        return zoomRect
     }
     
     override func layoutSubviews() {
         super.layoutSubviews()
         
-        // Actualizar el contenido cuando cambia el tamaño
-        if let image = imageView.image {
+        // Solo actualizar las restricciones si ha cambiado el tamaño
+        let currentSize = bounds.size
+        if let image = imageView.image, 
+           !postImageSetConstraints.isEmpty {
+            
+            // Es importante actualizar el zoom center cuando cambia el tamaño
+            let zoomCenter = CGPoint(x: contentOffset.x + currentSize.width / 2.0,
+                                    y: contentOffset.y + currentSize.height / 2.0)
+            
+            // Restablecemos las restricciones, pero mantenemos el zoom
+            let currentZoom = zoomScale
             didUpdateSize(size: image.size)
+            
+            // Mantener el nivel de zoom después de actualizar el layout
+            if currentZoom != 1.0 {
+                setZoomScale(currentZoom, animated: false)
+                
+                // Intentar mantener el mismo centro después del cambio de tamaño
+                let newContentOffset = CGPoint(
+                    x: zoomCenter.x - currentSize.width / 2.0,
+                    y: zoomCenter.y - currentSize.height / 2.0
+                )
+                setContentOffset(newContentOffset, animated: false)
+            }
         }
     }
 }
@@ -1048,9 +1153,33 @@ extension ZoomingScrollView: UIScrollViewDelegate {
     
     func scrollViewDidZoom(_ scrollView: UIScrollView) {
         // Centrar el contenido cuando se hace zoom
-        let offsetX = max((bounds.width - contentSize.width) * 0.5, 0)
-        let offsetY = max((bounds.height - contentSize.height) * 0.5, 0)
-        contentInset = UIEdgeInsets(top: offsetY, left: offsetX, bottom: offsetY, right: offsetX)
+        let zoomedContentSize = CGSize(
+            width: wrapper.frame.width * zoomScale,
+            height: wrapper.frame.height * zoomScale
+        )
+        
+        let boundsSize = bounds.size
+        
+        // Calcular offsets para mantener el contenido centrado
+        var frameOffsetX: CGFloat = 0
+        var frameOffsetY: CGFloat = 0
+        
+        // Calcular desplazamientos horizontales y verticales
+        if zoomedContentSize.width < boundsSize.width {
+            frameOffsetX = (boundsSize.width - zoomedContentSize.width) / 2.0
+        }
+        
+        if zoomedContentSize.height < boundsSize.height {
+            frameOffsetY = (boundsSize.height - zoomedContentSize.height) / 2.0
+        }
+        
+        // Aplicar los insets calculados
+        contentInset = UIEdgeInsets(
+            top: frameOffsetY,
+            left: frameOffsetX,
+            bottom: frameOffsetY,
+            right: frameOffsetX
+        )
     }
 }
 
