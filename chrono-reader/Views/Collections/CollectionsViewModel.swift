@@ -489,8 +489,16 @@ class CollectionsViewModel: ObservableObject {
     // Método para borrar completamente todas las colecciones
     func clearAllCollections() {
         collections.removeAll()
-        storedCollectionsData = nil
         sortedCollections.removeAll()
+        
+        // Asegurar que se borren todos los datos almacenados
+        storedCollectionsData = nil
+        
+        // Forzar actualización de UserDefaults
+        UserDefaults.standard.removeObject(forKey: "collections")
+        UserDefaults.standard.synchronize()
+        
+        // Notificar cambios
         objectWillChange.send()
         print("Todas las colecciones han sido eliminadas completamente")
     }

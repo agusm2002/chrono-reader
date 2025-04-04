@@ -22,6 +22,12 @@ enum ReadingMode: String, CaseIterable, Identifiable {
 
 // MARK: - Modelo de Datos para el Visor
 
+// Añadir esta estructura para representar una página unida en el modo webtoon
+struct WebtoonPage: Identifiable {
+    var id = UUID()
+    var image: UIImage
+}
+
 class ComicViewerModel: ObservableObject {
     @Published var currentPage: Int = 0
     @Published var totalPages: Int = 0
@@ -29,10 +35,15 @@ class ComicViewerModel: ObservableObject {
     @Published var isLoading: Bool = true
     @Published var readingMode: ReadingMode = .PAGED_COMIC
     @Published var showControls: Bool = true
+    @Published var showSettings: Bool = false
     @Published var scale: CGFloat = 1.0
     @Published var doublePaged: Bool = false
     @Published var lastPageOffsetPCT: Double? = nil
     @Published var pendingInitialScroll: Bool = false
+    @Published var isDraggingProgress: Bool = false
+    @Published var targetPage: Int? = nil
+    @Published var webtoonScrollOffset: CGFloat = 0
+    @Published var webtoonPages: [WebtoonPage] = []
     
     let book: CompleteBook
     
@@ -58,6 +69,9 @@ class ComicViewerModel: ObservableObject {
             DispatchQueue.main.async {
                 self.pages = loadedPages
                 self.totalPages = loadedPages.count
+                
+                // Crear webtoonPages a partir de las páginas cargadas
+                self.webtoonPages = self.pages.map { WebtoonPage(image: $0) }
                 
                 // Establecer la página inicial basada en el progreso guardado
                 if self.book.book.progress > 0 && self.totalPages > 0 {
@@ -92,10 +106,17 @@ class ComicViewerModel: ObservableObject {
         
         // Calcular el progreso como un valor entre 0 y 1
         let progress: Double
-        if totalPages <= 1 {
-            progress = currentPage > 0 ? 1.0 : 0.0
+        if readingMode.isVertical {
+            // En modo webtoon, usamos directamente el valor de lastPageOffsetPCT
+            // que se actualiza continuamente durante el desplazamiento
+            progress = lastPageOffsetPCT ?? 0.0
         } else {
-            progress = Double(currentPage) / Double(totalPages - 1)
+            // En modo paginado (cómic o manga)
+            if totalPages <= 1 {
+                progress = currentPage > 0 ? 1.0 : 0.0
+            } else {
+                progress = Double(currentPage) / Double(totalPages - 1)
+            }
         }
         
         // Asegurarse de que el progreso esté entre 0 y 1
@@ -111,17 +132,6 @@ class ComicViewerModel: ObservableObject {
         bookCopy.progress = clampedProgress
         bookCopy.lastReadDate = Date()
         bookCopy.pageCount = totalPages
-        
-        // Si estamos en modo vertical (webtoon), guardar también la posición vertical
-        if readingMode.isVertical {
-            // Aquí deberíamos guardar lastPageOffsetPCT en la base de datos
-            // Por ahora, solo lo imprimimos para depuración
-            if let offset = lastPageOffsetPCT {
-                print("Guardando posición vertical para webtoon: \(offset * 100)%")
-                // En una implementación completa, esto se guardaría en la base de datos
-                // bookCopy.lastPageOffsetPCT = offset
-            }
-        }
         
         // Crear la versión final del libro con todos los metadatos actualizados
         return CompleteBook(
@@ -139,14 +149,30 @@ class ComicViewerModel: ObservableObject {
     }
     
     func nextPage() {
-        if currentPage < totalPages - 1 {
-            currentPage += 1
+        if readingMode.isInverted {
+            // En modo manga, "siguiente" es ir a la izquierda (página anterior en términos de índice)
+            if currentPage > 0 {
+                currentPage -= 1
+            }
+        } else {
+            // En modo normal, "siguiente" es ir a la derecha (página siguiente en términos de índice)
+            if currentPage < totalPages - 1 {
+                currentPage += 1
+            }
         }
     }
     
     func previousPage() {
-        if currentPage > 0 {
-            currentPage -= 1
+        if readingMode.isInverted {
+            // En modo manga, "anterior" es ir a la derecha (página siguiente en términos de índice)
+            if currentPage < totalPages - 1 {
+                currentPage += 1
+            }
+        } else {
+            // En modo normal, "anterior" es ir a la izquierda (página anterior en términos de índice)
+            if currentPage > 0 {
+                currentPage -= 1
+            }
         }
     }
 }
@@ -171,8 +197,15 @@ struct EnhancedComicViewer: View {
             if model.isLoading {
                 loadingView
             } else if !model.pages.isEmpty {
-                ComicViewerContainer(model: model)
-                    .edgesIgnoringSafeArea(.all)
+                if model.readingMode.isVertical {
+                    // Usar la vista Webtoon para el modo vertical
+                    WebtoonViewerView(model: model)
+                        .edgesIgnoringSafeArea(.all)
+                } else {
+                    // Usar el visor paginado para los modos horizontales (comic/manga)
+                    ComicViewerContainer(model: model)
+                        .edgesIgnoringSafeArea(.all)
+                }
             } else {
                 errorView
             }
@@ -181,12 +214,27 @@ struct EnhancedComicViewer: View {
             if model.showControls {
                 VStack(spacing: 0) {
                     topBar
+                        .padding(.top, 5)
                     Spacer()
-                    bottomBar
+                    if !model.readingMode.isVertical {
+                        // Solo mostrar la barra inferior en modos de lectura paginados
+                        bottomBar
+                            .padding(.bottom, 0)
+                    }
                 }
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.2), value: model.showControls)
                 .edgesIgnoringSafeArea(.all)
+            }
+            
+            // Ventana de configuración
+            if model.showSettings {
+                ComicSettingsView(
+                    readingMode: $model.readingMode,
+                    doublePaged: $model.doublePaged,
+                    isPresented: $model.showSettings
+                )
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
         .statusBar(hidden: true)
@@ -269,16 +317,11 @@ struct EnhancedComicViewer: View {
             
             Spacer()
             
-            Menu {
-                Picker("Modo de Lectura", selection: $model.readingMode) {
-                    ForEach(ReadingMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
+            Button(action: {
+                withAnimation(.spring()) {
+                    model.showSettings = true
                 }
-                
-                Toggle("Páginas Dobles", isOn: $model.doublePaged)
-                    .disabled(model.readingMode == .VERTICAL)
-            } label: {
+            }) {
                 Image(systemName: "gear")
                     .font(.title3)
                     .foregroundColor(.white)
@@ -288,7 +331,8 @@ struct EnhancedComicViewer: View {
             }
             .padding(.trailing, 16)
         }
-        .padding(.top, 8)
+        .padding(.top, 50)
+        .padding(.bottom, 12)
         .background(
             LinearGradient(
                 gradient: Gradient(colors: [Color.black.opacity(0.7), Color.black.opacity(0)]),
@@ -300,90 +344,303 @@ struct EnhancedComicViewer: View {
     
     // Barra inferior
     private var bottomBar: some View {
-        VStack(spacing: 8) {
-            // Información de página
-            HStack {
-                Text("\(model.currentPage + 1) de \(model.totalPages)")
-                    .font(.subheadline)
-                    .foregroundColor(.white)
-                    .shadow(color: .black, radius: 2, x: 0, y: 1)
-                
-                Spacer()
-                
-                if let series = model.book.book.series {
-                    Text(series)
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                        .shadow(color: .black, radius: 2, x: 0, y: 1)
-                    
-                    if let issue = model.book.book.issueNumber {
-                        Text("#\(issue)")
-                            .font(.subheadline)
-                            .foregroundColor(.white)
-                            .shadow(color: .black, radius: 2, x: 0, y: 1)
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-            
-            // Barra de progreso
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    // Barra de fondo
-                    Rectangle()
-                        .fill(Color.white.opacity(0.3))
-                        .frame(height: 4)
-                        .cornerRadius(2)
-                    
-                    // Barra de progreso
-                    Rectangle()
-                        .fill(Color.white)
-                        .frame(width: geometry.size.width * CGFloat(model.currentPage + 1) / CGFloat(model.totalPages), height: 4)
-                        .cornerRadius(2)
-                }
-            }
-            .frame(height: 4)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
-            
-            // Controles de navegación
-            HStack(spacing: 40) {
-                Button(action: {
-                    model.previousPage()
-                }) {
-                    Image(systemName: "chevron.left")
-                        .font(.title3)
-                        .foregroundColor(.white)
-                        .padding(12)
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(Circle())
-                }
-                .disabled(model.currentPage <= 0)
-                .opacity(model.currentPage <= 0 ? 0.5 : 1.0)
-                
-                Button(action: {
-                    model.nextPage()
-                }) {
-                    Image(systemName: "chevron.right")
-                        .font(.title3)
-                        .foregroundColor(.white)
-                        .padding(12)
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(Circle())
-                }
-                .disabled(model.currentPage >= model.totalPages - 1)
-                .opacity(model.currentPage >= model.totalPages - 1 ? 0.5 : 1.0)
-            }
-            .padding(.bottom, 20)
-        }
-        .padding(.bottom, 8)
-        .background(
+        ZStack(alignment: .bottom) {
+            // Fondo con gradiente
             LinearGradient(
                 gradient: Gradient(colors: [Color.black.opacity(0), Color.black.opacity(0.7)]),
                 startPoint: .top,
                 endPoint: .bottom
             )
-        )
+            
+            VStack(spacing: 5) {
+                Spacer() // Empujar todo hacia abajo
+                
+                // Barra de progreso
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        // Barra de fondo
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(Color.white.opacity(0.3))
+                            .frame(height: 3)
+                            .shadow(color: Color.black.opacity(0.3), radius: 1, x: 0, y: 0)
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { value in
+                                        // Marcar que estamos arrastrando
+                                        model.isDraggingProgress = true
+                                        
+                                        // Calcular la posición relativa del toque en la barra
+                                        let percentage = max(0, min(1, value.location.x / geometry.size.width))
+                                        
+                                        // Calcular la página correspondiente
+                                        let newPage = Int(round(percentage * CGFloat(model.totalPages - 1)))
+                                        
+                                        // Almacenar la página objetivo durante el arrastre
+                                        model.targetPage = max(0, min(newPage, model.totalPages - 1))
+                                    }
+                                    .onEnded { value in
+                                        // Al soltar, actualizar la página actual con la página objetivo
+                                        if let targetPage = model.targetPage {
+                                            model.currentPage = targetPage
+                                            model.targetPage = nil
+                                        }
+                                        
+                                        // Marcar que ya no estamos arrastrando
+                                        model.isDraggingProgress = false
+                                    }
+                            )
+                        
+                        // Calcular la anchura de la barra de progreso y la posición del círculo
+                        let currentPageIndex = CGFloat(model.targetPage != nil ? model.targetPage! : model.currentPage)
+                        let maxPageIndex = CGFloat(max(1, model.totalPages - 1))
+                        let progressRatio = currentPageIndex / maxPageIndex
+                        let progressWidth = geometry.size.width * progressRatio
+                        
+                        // Barra de progreso
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(Color.white)
+                            .frame(width: progressWidth, height: 3)
+                            .shadow(color: Color.black.opacity(0.3), radius: 1, x: 0, y: 0)
+                            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.7, blendDuration: 0.1), value: model.targetPage)
+                            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.7, blendDuration: 0.1), value: model.currentPage)
+                        
+                        // Indicador de posición actual (marcador deslizante)
+                        ZStack {
+                            // Un área táctil más grande semi-transparente para mejor toque
+                            Rectangle()
+                                .fill(Color.white.opacity(0.001))
+                                .frame(width: 44, height: 44)
+                            
+                            // Indicador de posición
+                            VStack(spacing: 0) {
+                                // Mango superior para arrastrar
+                                Capsule()
+                                    .fill(Color.white)
+                                    .frame(width: 6, height: 10)
+                                    .shadow(color: Color.black.opacity(0.6), radius: 1, x: 0, y: 0)
+                                
+                                // Línea vertical
+                                Rectangle()
+                                    .fill(Color.white)
+                                    .frame(width: 2, height: 6)
+                                    .shadow(color: Color.black.opacity(0.6), radius: 1, x: 0, y: 0)
+                            }
+                            .offset(y: -8)
+                        }
+                        .position(x: max(7, min(geometry.size.width - 7, progressWidth)), y: 2)
+                        .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.7, blendDuration: 0.1), value: model.targetPage)
+                        .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.7, blendDuration: 0.1), value: model.currentPage)
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { value in
+                                    // Marcar que estamos arrastrando
+                                    model.isDraggingProgress = true
+                                    
+                                    // Calcular la posición relativa del toque en la barra
+                                    let percentage = max(0, min(1, value.location.x / geometry.size.width))
+                                    
+                                    // Calcular la página correspondiente
+                                    let newPage = Int(round(percentage * CGFloat(model.totalPages - 1)))
+                                    
+                                    // Almacenar la página objetivo durante el arrastre
+                                    model.targetPage = max(0, min(newPage, model.totalPages - 1))
+                                }
+                                .onEnded { value in
+                                    // Al soltar, actualizar la página actual con la página objetivo
+                                    if let targetPage = model.targetPage {
+                                        model.currentPage = targetPage
+                                        model.targetPage = nil
+                                    }
+                                    
+                                    // Marcar que ya no estamos arrastrando
+                                    model.isDraggingProgress = false
+                                }
+                        )
+                    }
+                    .frame(height: 16) // Aumentar la altura para facilitar el toque
+                }
+                .frame(height: 16)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 5)
+                
+                // MOVIDO: Contador de páginas centrado
+                HStack {
+                    Spacer()
+                    Text(model.targetPage != nil ? 
+                         "\(model.targetPage! + 1) de \(model.totalPages)" : 
+                         "\(model.currentPage + 1) de \(model.totalPages)")
+                        .font(.caption)
+                        .foregroundColor(.white)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 10)
+                        .background(Color.black.opacity(0.5))
+                        .cornerRadius(10)
+                        .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.7, blendDuration: 0.1), value: model.targetPage)
+                    Spacer()
+                }
+                .padding(.bottom, 5)
+                
+                // Controles de navegación
+                HStack(spacing: 140) {
+                    Button(action: {
+                        model.previousPage()
+                    }) {
+                        Image(systemName: "chevron.left")
+                            .font(.title3)
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(Color.black.opacity(0.5))
+                            .clipShape(Circle())
+                    }
+                    .disabled(model.currentPage <= 0)
+                    .opacity(model.currentPage <= 0 ? 0.5 : 1.0)
+                    
+                    Button(action: {
+                        model.nextPage()
+                    }) {
+                        Image(systemName: "chevron.right")
+                            .font(.title3)
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(Color.black.opacity(0.5))
+                            .clipShape(Circle())
+                    }
+                    .disabled(model.currentPage >= model.totalPages - 1)
+                    .opacity(model.currentPage >= model.totalPages - 1 ? 0.5 : 1.0)
+                }
+                .padding(.bottom, 20)
+                
+                // Información de serie/issue - mantenemos solo esta parte
+                if let series = model.book.book.series {
+                    HStack {
+                        Spacer()
+                        
+                        Text(series)
+                            .font(.footnote)
+                            .foregroundColor(.white)
+                            .shadow(color: .black, radius: 2, x: 0, y: 1)
+                        
+                        if let issue = model.book.book.issueNumber {
+                            Text("#\(issue)")
+                                .font(.footnote)
+                                .foregroundColor(.white)
+                                .shadow(color: .black, radius: 2, x: 0, y: 1)
+                        }
+                        
+                        Spacer()
+                    }
+                    .padding(.bottom, 5)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Vista para el modo webtoon (todas las páginas unidas)
+struct WebtoonViewerView: View {
+    @ObservedObject var model: ComicViewerModel
+    @State private var scrollOffset: CGFloat = 0
+    @State private var scrollViewHeight: CGFloat = 0
+    @State private var initialScrollApplied: Bool = false
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollViewReader { scrollProxy in
+                ScrollView(.vertical, showsIndicators: true) {
+                    LazyVStack(spacing: 0) {
+                        // Marcadores para posicionamiento
+                        Color.clear
+                            .frame(width: 1, height: 1)
+                            .id("scrollTop")
+                        
+                        ForEach(Array(model.webtoonPages.enumerated()), id: \.element.id) { index, page in
+                            Image(uiImage: page.image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: geometry.size.width)
+                                .id("page_\(index)") // ID único para cada página
+                        }
+                        
+                        // Marcador final
+                        Color.clear
+                            .frame(width: 1, height: 1)
+                            .id("scrollBottom")
+                    }
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear
+                                .preference(key: ScrollOffsetPreferenceKey.self, value: proxy.frame(in: .named("scrollView")).minY)
+                                .onAppear {
+                                    scrollViewHeight = proxy.size.height
+                                }
+                        }
+                    )
+                }
+                .coordinateSpace(name: "scrollView")
+                .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
+                    scrollOffset = value
+                    
+                    // Calcular y guardar el progreso como un valor entre 0 y 1
+                    if scrollViewHeight > geometry.size.height {
+                        let maxScroll = scrollViewHeight - geometry.size.height
+                        let currentScrollPCT = min(1.0, max(0.0, -scrollOffset / maxScroll))
+                        model.lastPageOffsetPCT = Double(currentScrollPCT)
+                        
+                        // Calcular la página actual aproximada basada en el desplazamiento
+                        if model.webtoonPages.count > 0 {
+                            let estimatedPage = Int(currentScrollPCT * Double(model.webtoonPages.count - 1))
+                            if estimatedPage != model.currentPage {
+                                model.currentPage = estimatedPage
+                                print("Webtoon: En página estimada \(estimatedPage+1) de \(model.webtoonPages.count), progreso: \(currentScrollPCT * 100)%")
+                            }
+                        }
+                    }
+                }
+                .onAppear {
+                    // Aplicar la posición de desplazamiento inicial si hay un valor guardado
+                    if !initialScrollApplied, model.pendingInitialScroll, let savedOffset = model.lastPageOffsetPCT, model.webtoonPages.count > 0 {
+                        // Esperar a que la vista se cargue completamente
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            // Marcar que ya hemos aplicado el desplazamiento inicial
+                            initialScrollApplied = true
+                            model.pendingInitialScroll = false
+                            
+                            if model.currentPage > 0 && model.currentPage < model.webtoonPages.count {
+                                // Desplazarse a la página aproximada guardada
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    scrollProxy.scrollTo("page_\(model.currentPage)", anchor: .top)
+                                    
+                                    print("Webtoon: Restaurando a la página \(model.currentPage+1)")
+                                }
+                            } else if savedOffset > 0.01 {
+                                // Si no podemos ir a una página específica pero tenemos un offset aproximado,
+                                // intentar ir a una posición relativa
+                                if savedOffset > 0.9 {
+                                    withAnimation {
+                                        scrollProxy.scrollTo("scrollBottom", anchor: .bottom)
+                                    }
+                                } else if savedOffset > 0.05 {
+                                    // Para posiciones intermedias, calcular una página aproximada
+                                    let estimatedPage = Int(savedOffset * Double(model.webtoonPages.count - 1))
+                                    withAnimation {
+                                        scrollProxy.scrollTo("page_\(estimatedPage)", anchor: .top)
+                                    }
+                                }
+                                print("Webtoon: Restaurando posición de desplazamiento aproximada \(savedOffset * 100)%")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Clave de preferencia para rastrear el desplazamiento del ScrollView
+struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
@@ -544,7 +801,7 @@ class IVPagingController: UIViewController {
         // Observar cambios en el modelo
         model.$currentPage
             .sink { [weak self] page in
-                guard let self = self else { return }
+                guard let self = self, !self.model.isDraggingProgress else { return }
                 self.scrollToPage(page)
             }
             .store(in: &cancellables)
@@ -560,6 +817,17 @@ class IVPagingController: UIViewController {
             .sink { [weak self] _ in
                 guard let self = self else { return }
                 self.updateReadingMode()
+            }
+            .store(in: &cancellables)
+            
+        // Nuevo monitor para cuando se suelta la barra de progreso
+        model.$isDraggingProgress
+            .sink { [weak self] isDragging in
+                guard let self = self, !isDragging else { return }
+                // Cuando se deja de arrastrar, nos desplazamos a la página actual
+                DispatchQueue.main.async {
+                    self.scrollToPage(self.model.currentPage)
+                }
             }
             .store(in: &cancellables)
     }
@@ -693,14 +961,24 @@ class IVPagingController: UIViewController {
             return
         }
         
-        // Aplicar transformación para manga (derecha a izquierda)
-        collectionView.transform = model.readingMode.isInverted ? CGAffineTransform(scaleX: -1, y: 1) : .identity
+        // Ya no aplicamos transformación en modo manga
+        // Solo cambiaremos la lógica de navegación en handleNavigationAction
+        collectionView.transform = .identity
     }
     
     private func scrollToPage(_ page: Int, animated: Bool = true) {
         guard page >= 0 && page < model.pages.count else { return }
         
-        let indexPath = IndexPath(item: page, section: 0)
+        // Convertir el índice de página real al índice visual en el CollectionView según el modo de lectura
+        let visualIndex: Int
+        if model.readingMode.isInverted && !model.readingMode.isVertical {
+            // En modo manga, el índice visual es inverso al índice real
+            visualIndex = model.pages.count - 1 - page
+        } else {
+            visualIndex = page
+        }
+        
+        let indexPath = IndexPath(item: visualIndex, section: 0)
         collectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: animated)
         
         // Si estamos en modo vertical y hay una posición guardada, restaurarla
@@ -754,11 +1032,22 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
         
         // Configurar la celda con la imagen
         if indexPath.item < model.pages.count {
-            let image = model.pages[indexPath.item]
-            cell.configure(with: image, readingMode: model.readingMode)
+            // Determinar el índice real de la página según el modo de lectura
+            let pageIndex: Int
+            if model.readingMode.isInverted && !model.readingMode.isVertical {
+                // En modo manga invertimos el orden de las páginas
+                pageIndex = model.pages.count - 1 - indexPath.item
+            } else {
+                pageIndex = indexPath.item
+            }
             
-            // Actualizar los gestos para esta celda
-            tapGestureRecognizer.require(toFail: cell.scrollView.doubleTapGesture)
+            if pageIndex < model.pages.count {
+                let image = model.pages[pageIndex]
+                cell.configure(with: image, readingMode: model.readingMode)
+                
+                // Actualizar los gestos para esta celda
+                tapGestureRecognizer.require(toFail: cell.scrollView.doubleTapGesture)
+            }
         }
         
         return cell
@@ -787,9 +1076,19 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
             }
         } else {
             // Cálculo para desplazamiento horizontal
-            let page = Int(floor(scrollView.contentOffset.x / pageWidth))
-            if page != model.currentPage {
-                model.currentPage = max(0, min(page, model.pages.count - 1))
+            let visualIndex = Int(floor(scrollView.contentOffset.x / pageWidth))
+            
+            // Convertir el índice visual al índice real de página según el modo de lectura
+            let pageIndex: Int
+            if model.readingMode.isInverted && !model.readingMode.isVertical {
+                // En modo manga, el índice real es inverso al índice visual
+                pageIndex = model.pages.count - 1 - visualIndex
+            } else {
+                pageIndex = visualIndex
+            }
+            
+            if pageIndex != model.currentPage {
+                model.currentPage = max(0, min(pageIndex, model.pages.count - 1))
             }
         }
     }
@@ -880,12 +1179,8 @@ class ComicPageCell: UICollectionViewCell {
     }
     
     func configure(with image: UIImage, readingMode: ReadingMode) {
-        // Aplicar transformación para manga si es necesario
-        if readingMode.isInverted && !readingMode.isVertical {
-            scrollView.transform = CGAffineTransform(scaleX: -1, y: 1)
-        } else {
-            scrollView.transform = .identity
-        }
+        // Ya no aplicamos transformación para manga
+        scrollView.transform = .identity
         
         // Configurar la imagen
         scrollView.display(image: image)
@@ -1194,5 +1489,123 @@ struct EnhancedComicViewer_Previews: PreviewProvider {
             type: .cbz,
             progress: 0.5
         ))
+    }
+}
+
+// MARK: - Vista de Configuración del Cómic
+struct ComicSettingsView: View {
+    @Binding var readingMode: ReadingMode
+    @Binding var doublePaged: Bool
+    @Binding var isPresented: Bool
+    @Environment(\.colorScheme) var colorScheme
+    
+    var body: some View {
+        ZStack {
+            // Fondo semitransparente
+            Color.black.opacity(0.6)
+                .edgesIgnoringSafeArea(.all)
+                .onTapGesture {
+                    withAnimation(.spring()) {
+                        isPresented = false
+                    }
+                }
+            
+            // Panel de configuración
+            VStack(spacing: 20) {
+                // Encabezado
+                HStack {
+                    Text("Configuración")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundColor(.primary)
+                    
+                    Spacer()
+                    
+                    Button(action: {
+                        withAnimation(.spring()) {
+                            isPresented = false
+                        }
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundColor(.gray)
+                    }
+                }
+                
+                Divider()
+                
+                // Modo de lectura
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Modo de lectura")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    ForEach(ReadingMode.allCases) { mode in
+                        Button(action: {
+                            withAnimation {
+                                readingMode = mode
+                            }
+                        }) {
+                            HStack {
+                                Image(systemName: mode.isVertical ? "arrow.down" : (mode.isInverted ? "arrow.left" : "arrow.right"))
+                                    .foregroundColor(.primary)
+                                
+                                Text(mode.rawValue)
+                                    .foregroundColor(.primary)
+                                
+                                Spacer()
+                                
+                                if readingMode == mode {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.blue)
+                                }
+                            }
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 16)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(readingMode == mode ? Color.blue.opacity(0.1) : Color.clear)
+                            )
+                            .contentShape(Rectangle())
+                        }
+                    }
+                }
+                
+                // Opción de páginas dobles
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Opciones adicionales")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                    
+                    Toggle(isOn: $doublePaged) {
+                        HStack {
+                            Image(systemName: "book.pages")
+                                .foregroundColor(.primary)
+                            
+                            Text("Páginas dobles")
+                                .foregroundColor(.primary)
+                        }
+                    }
+                    .disabled(readingMode == .VERTICAL)
+                    .opacity(readingMode == .VERTICAL ? 0.5 : 1)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(UIColor.secondarySystemBackground))
+                    )
+                }
+                
+                Spacer()
+            }
+            .padding()
+            .frame(width: min(UIScreen.main.bounds.width * 0.85, 350))
+            .background(Color(UIColor.systemBackground))
+            .cornerRadius(16)
+            .shadow(radius: 10)
+            .padding()
+            .padding(.top, 50) // Padding adicional en la parte superior para evitar la isla dinámica
+        }
+        .zIndex(10)
     }
 } 

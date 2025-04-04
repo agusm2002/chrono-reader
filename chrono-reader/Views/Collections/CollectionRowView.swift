@@ -60,13 +60,7 @@ struct CollectionRowView: View {
                 .padding(.top, 16)
                 
                 // Portadas alineadas horizontalmente
-                Group {
-                    if viewModel.booksInCollection(collection).count > 3 {
-                        AnimatedCoversView(books: viewModel.booksInCollection(collection))
-                    } else {
-                        ScatteredCoversView(books: viewModel.booksInCollection(collection))
-                    }
-                }
+                AnimatedCoversView(books: viewModel.booksInCollection(collection))
                 .padding(.top, 6)
                 .padding(.bottom, 4)
                 .frame(maxWidth: .infinity)

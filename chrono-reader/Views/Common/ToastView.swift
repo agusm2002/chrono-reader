@@ -6,33 +6,42 @@ struct ToastView: View {
     var style: ToastStyle = .success
     
     var body: some View {
-        VStack {
-            Spacer()
-            
-            HStack(alignment: .center, spacing: 12) {
-                Image(systemName: style.iconName)
-                    .foregroundColor(style.iconColor)
-                
-                Text(message)
-                    .font(.subheadline)
-                    .foregroundColor(.white)
-                
+        GeometryReader { geometry in
+            VStack {
                 Spacer()
+                
+                HStack(alignment: .center, spacing: 12) {
+                    Image(systemName: style.iconName)
+                        .foregroundColor(style.iconColor)
+                        .font(.system(size: 18))
+                    
+                    Text(message)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(.primary)
+                    
+                    Spacer(minLength: 4)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.secondarySystemBackground))
+                        .shadow(color: Color.black.opacity(0.16), radius: 8, x: 0, y: 4)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.appTheme().opacity(0.3), lineWidth: 1)
+                )
+                .frame(maxWidth: min(geometry.size.width - 80, 350))
+                .padding(.bottom, 64)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(.systemGray6).opacity(0.95))
-            )
-            .shadow(color: Color.black.opacity(0.15), radius: 10, x: 0, y: 5)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 20)
-            .transition(.move(edge: .bottom))
-            .animation(.spring(), value: isShowing)
+            .position(x: geometry.size.width/2, y: geometry.size.height - 32)
         }
+        .ignoresSafeArea()
+        .transition(.move(edge: .bottom))
+        .animation(.spring(), value: isShowing)
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
                 withAnimation {
                     self.isShowing = false
                 }
@@ -63,13 +72,13 @@ enum ToastStyle {
     var iconColor: Color {
         switch self {
         case .success:
-            return .green
+            return Color.appTheme()
         case .error:
             return .red
         case .warning:
             return .orange
         case .info:
-            return .blue
+            return Color.appTheme()
         }
     }
 }
@@ -85,7 +94,7 @@ struct ToastModifier: ViewModifier {
             
             if isShowing {
                 ToastView(message: message, isShowing: $isShowing, style: style)
-                    .zIndex(100)
+                    .zIndex(9999)
             }
         }
     }

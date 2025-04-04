@@ -967,14 +967,29 @@ class HomeViewModel: ObservableObject {
         // Borrar los datos guardados
         storedBooksData = nil
         
-        // Resetear las colecciones
-        collectionsViewModel.clearAllCollections()
+        // Forzar eliminación en UserDefaults
+        UserDefaults.standard.removeObject(forKey: "books")
+        UserDefaults.standard.synchronize()
+        
+        // Resetear las colecciones - asegurarse que se ejecute en la cola principal
+        DispatchQueue.main.async {
+            self.collectionsViewModel.clearAllCollections()
+            
+            // Asegurar que las vistas se actualizan
+            self.collectionsViewModel.objectWillChange.send()
+            
+            // Volver a cargar las colecciones para confirmar que están vacías
+            self.collectionsViewModel.loadCollections()
+        }
         
         // Cargar los libros de muestra
         loadSampleBooks()
         
         // Guardar los cambios
         saveBooks()
+        
+        // Forzar actualización de la UI
+        objectWillChange.send()
         
         print("Biblioteca reiniciada con libros de muestra y colecciones eliminadas")
     }
@@ -1167,41 +1182,44 @@ struct HomeView: View {
         ZStack {
             // Contenido principal
             mainContent
-            
-            // Toast notification
+                
+            // Toast notification - ahora en un ZStack separado con posición absoluta
             if viewModel.showToast {
-                VStack {
-                    Spacer()
-                    
-                    HStack(alignment: .center, spacing: 12) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.system(size: 18))
-                        
-                        Text(viewModel.toastMessage)
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.primary)
-                        
+                GeometryReader { geometry in
+                    VStack {
                         Spacer()
+                        
+                        HStack(alignment: .center, spacing: 12) {
+                            Image(systemName: viewModel.toastStyle.iconName)
+                                .foregroundColor(viewModel.toastStyle.iconColor)
+                                .font(.system(size: 18))
+                            
+                            Text(viewModel.toastMessage)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(.primary)
+                            
+                            Spacer(minLength: 4)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color(.secondarySystemBackground))
+                                .shadow(color: Color.black.opacity(0.16), radius: 8, x: 0, y: 4)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.appTheme().opacity(0.3), lineWidth: 1)
+                        )
+                        .frame(maxWidth: min(geometry.size.width - 80, 350))
+                        .padding(.bottom, 64) // Posición fija desde la parte inferior de la pantalla
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(Color(.systemBackground))
-                            .shadow(color: Color.black.opacity(0.2), radius: 15, x: 0, y: 5)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.gray.opacity(0.1), lineWidth: 0.5)
-                    )
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 100) // Para que aparezca por encima de la barra de navegación
-                    .transition(.move(edge: .bottom))
+                    .position(x: geometry.size.width/2, y: geometry.size.height - 32)
                 }
-                .zIndex(999)
-                .transition(.move(edge: .bottom))
-                .animation(.spring(), value: viewModel.showToast)
+                .ignoresSafeArea()
+                .zIndex(9999) // Asegurarse de que está por encima de todo
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.spring(response: 0.5, dampingFraction: 0.7), value: viewModel.showToast)
                 .onAppear {
                     // Aumentamos el tiempo de visualización a 2.5 segundos para dar más tiempo para leer
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {

@@ -251,78 +251,23 @@ struct ScatteredCoversView: View {
 struct AnimatedCoversView: View {
     let books: [CompleteBook]
     
-    // Usamos un timer manualmente para controlar la animación
-    @State private var currentOffset: CGFloat = 0
-    @State private var timer: Timer? = nil
-    
     var body: some View {
         GeometryReader { geometry in
-            let availableWidth = geometry.size.width
             let coverWidth: CGFloat = 112
             let spacing: CGFloat = 10
             
-            // Optimizamos el contenido para mejor rendimiento
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: spacing) {
                     // Limitamos las repeticiones y usamos una vista más eficiente
-                    // Primera copia
-                    ForEach(books.prefix(min(books.count, 10))) { book in
-                        optimizedCoverView(for: book)
-                    }
-                    
-                    // Segunda copia para continuidad
                     ForEach(books.prefix(min(books.count, 10))) { book in
                         optimizedCoverView(for: book)
                     }
                 }
-                .padding(.horizontal, 16) // Asegurar que las portadas inicien desde un punto visible
+                .padding(.horizontal, 16)
             }
-            .content.offset(x: currentOffset)
-            .disabled(true) // Deshabilitar interacción
+            // Permitir interacción del usuario
         }
         .frame(height: 180)
-        .onAppear {
-            startScrollAnimation()
-        }
-        .onDisappear {
-            stopScrollAnimation()
-        }
-    }
-    
-    private func startScrollAnimation() {
-        guard books.count >= 4 else { return }
-        
-        // Detener cualquier animación previa
-        stopScrollAnimation()
-        
-        // Iniciar desde un punto que asegure portadas visibles
-        currentOffset = 0
-        
-        // Calcular el ancho total de una copia de los libros
-        let coverWidth: CGFloat = 112
-        let spacing: CGFloat = 10
-        let totalSetWidth = CGFloat(min(books.count, 10)) * (coverWidth + spacing)
-        
-        // Velocidad ajustada para mejor rendimiento
-        let pixelsPerFrame: CGFloat = 0.4
-        
-        // Usar un timer con intervalos más espaciados para mejor rendimiento
-        timer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { _ in
-            // Mover gradualmente con velocidad ajustada
-            // Evitamos animaciones para cada frame
-            self.currentOffset -= pixelsPerFrame
-            
-            // Transición suave cuando se completa un ciclo
-            if -self.currentOffset >= totalSetWidth {
-                // Reiniciamos sin animación para crear un ciclo continuo
-                self.currentOffset += totalSetWidth
-            }
-        }
-    }
-    
-    private func stopScrollAnimation() {
-        timer?.invalidate()
-        timer = nil
     }
     
     // Vista optimizada para portadas
