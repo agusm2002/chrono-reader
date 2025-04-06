@@ -45,10 +45,15 @@ struct LibrarySettingsView: View {
                 
                 Button(action: {
                     // Mostrar alerta de confirmación para reiniciar
-                    let confirmAlert = UIAlertController(title: "Reiniciar biblioteca", message: "¿Estás seguro de que quieres borrar todos los libros y colecciones?", preferredStyle: .alert)
+                    let confirmAlert = UIAlertController(title: "Reiniciar biblioteca", message: "¿Estás seguro de que quieres borrar todos los libros y ELIMINAR COMPLETAMENTE todas las colecciones?", preferredStyle: .alert)
                     
                     confirmAlert.addAction(UIAlertAction(title: "Cancelar", style: .cancel))
                     confirmAlert.addAction(UIAlertAction(title: "Reiniciar", style: .destructive) { _ in
+                        // Forzar eliminación de colecciones directamente en UserDefaults
+                        UserDefaults.standard.removeObject(forKey: "collections")
+                        UserDefaults.standard.synchronize()
+                        
+                        // Luego reiniciar con el método normal
                         viewModel.resetToSampleBooks()
                     })
                     

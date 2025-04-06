@@ -38,6 +38,7 @@ class ComicViewerModel: ObservableObject {
     @Published var showSettings: Bool = false
     @Published var scale: CGFloat = 1.0
     @Published var doublePaged: Bool = false
+    @Published var useWhiteBackground: Bool = false
     @Published var lastPageOffsetPCT: Double? = nil
     @Published var pendingInitialScroll: Bool = false
     @Published var isDraggingProgress: Bool = false
@@ -149,7 +150,7 @@ class ComicViewerModel: ObservableObject {
     }
     
     func nextPage() {
-        if readingMode.isInverted {
+        if readingMode == .PAGED_MANGA {
             // En modo manga, "siguiente" es ir a la izquierda (página anterior en términos de índice)
             if currentPage > 0 {
                 currentPage -= 1
@@ -163,7 +164,7 @@ class ComicViewerModel: ObservableObject {
     }
     
     func previousPage() {
-        if readingMode.isInverted {
+        if readingMode == .PAGED_MANGA {
             // En modo manga, "anterior" es ir a la derecha (página siguiente en términos de índice)
             if currentPage < totalPages - 1 {
                 currentPage += 1
@@ -191,8 +192,9 @@ struct EnhancedComicViewer: View {
     
     var body: some View {
         ZStack {
-            // Fondo negro
-            Color.black.edgesIgnoringSafeArea(.all)
+            // Fondo negro o blanco según la configuración
+            (model.useWhiteBackground ? Color.white : Color.black)
+                .edgesIgnoringSafeArea(.all)
             
             if model.isLoading {
                 loadingView
@@ -232,6 +234,7 @@ struct EnhancedComicViewer: View {
                 ComicSettingsView(
                     readingMode: $model.readingMode,
                     doublePaged: $model.doublePaged,
+                    useWhiteBackground: $model.useWhiteBackground,
                     isPresented: $model.showSettings
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -268,11 +271,11 @@ struct EnhancedComicViewer: View {
     private var loadingView: some View {
         VStack {
             ProgressView()
-                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                .progressViewStyle(CircularProgressViewStyle(tint: model.useWhiteBackground ? .black : .white))
                 .scaleEffect(1.5)
             
             Text("Cargando cómic...")
-                .foregroundColor(.white)
+                .foregroundColor(model.useWhiteBackground ? .black : .white)
                 .font(.headline)
                 .padding(.top, 20)
         }
@@ -283,10 +286,10 @@ struct EnhancedComicViewer: View {
         VStack {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 50))
-                .foregroundColor(.white)
+                .foregroundColor(model.useWhiteBackground ? .black : .white)
             
             Text("No se pudieron cargar las páginas del cómic")
-                .foregroundColor(.white)
+                .foregroundColor(model.useWhiteBackground ? .black : .white)
                 .font(.headline)
                 .padding(.top, 20)
         }
@@ -300,9 +303,9 @@ struct EnhancedComicViewer: View {
             }) {
                 Image(systemName: "chevron.left")
                     .font(.title3)
-                    .foregroundColor(.white)
+                    .foregroundColor(model.useWhiteBackground ? .black : .white)
                     .padding(12)
-                    .background(Color.black.opacity(0.5))
+                    .background(model.useWhiteBackground ? Color.gray.opacity(0.2) : Color.black.opacity(0.5))
                     .clipShape(Circle())
             }
             .padding(.leading, 16)
@@ -311,9 +314,9 @@ struct EnhancedComicViewer: View {
             
             Text(model.book.displayTitle)
                 .font(.headline)
-                .foregroundColor(.white)
+                .foregroundColor(model.useWhiteBackground ? .black : .white)
                 .lineLimit(1)
-                .shadow(color: .black, radius: 2, x: 0, y: 1)
+                .shadow(color: model.useWhiteBackground ? .clear : .black, radius: 2, x: 0, y: 1)
             
             Spacer()
             
@@ -324,9 +327,9 @@ struct EnhancedComicViewer: View {
             }) {
                 Image(systemName: "gear")
                     .font(.title3)
-                    .foregroundColor(.white)
+                    .foregroundColor(model.useWhiteBackground ? .black : .white)
                     .padding(12)
-                    .background(Color.black.opacity(0.5))
+                    .background(model.useWhiteBackground ? Color.gray.opacity(0.2) : Color.black.opacity(0.5))
                     .clipShape(Circle())
             }
             .padding(.trailing, 16)
@@ -335,7 +338,10 @@ struct EnhancedComicViewer: View {
         .padding(.bottom, 12)
         .background(
             LinearGradient(
-                gradient: Gradient(colors: [Color.black.opacity(0.7), Color.black.opacity(0)]),
+                gradient: Gradient(colors: [
+                    model.useWhiteBackground ? Color.white.opacity(0.7) : Color.black.opacity(0.7),
+                    model.useWhiteBackground ? Color.white.opacity(0) : Color.black.opacity(0)
+                ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -347,7 +353,10 @@ struct EnhancedComicViewer: View {
         ZStack(alignment: .bottom) {
             // Fondo con gradiente
             LinearGradient(
-                gradient: Gradient(colors: [Color.black.opacity(0), Color.black.opacity(0.7)]),
+                gradient: Gradient(colors: [
+                    model.useWhiteBackground ? Color.white.opacity(0) : Color.black.opacity(0), 
+                    model.useWhiteBackground ? Color.white.opacity(0.7) : Color.black.opacity(0.7)
+                ]),
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -360,9 +369,9 @@ struct EnhancedComicViewer: View {
                     ZStack(alignment: .leading) {
                         // Barra de fondo
                         RoundedRectangle(cornerRadius: 1.5)
-                            .fill(Color.white.opacity(0.3))
+                            .fill(model.useWhiteBackground ? Color.black.opacity(0.3) : Color.white.opacity(0.3))
                             .frame(height: 3)
-                            .shadow(color: Color.black.opacity(0.3), radius: 1, x: 0, y: 0)
+                            .shadow(color: model.useWhiteBackground ? Color.white.opacity(0.3) : Color.black.opacity(0.3), radius: 1, x: 0, y: 0)
                             .gesture(
                                 DragGesture(minimumDistance: 0)
                                     .onChanged { value in
@@ -398,9 +407,9 @@ struct EnhancedComicViewer: View {
                         
                         // Barra de progreso
                         RoundedRectangle(cornerRadius: 1.5)
-                            .fill(Color.white)
+                            .fill(model.useWhiteBackground ? Color.black : Color.white)
                             .frame(width: progressWidth, height: 3)
-                            .shadow(color: Color.black.opacity(0.3), radius: 1, x: 0, y: 0)
+                            .shadow(color: model.useWhiteBackground ? Color.white.opacity(0.3) : Color.black.opacity(0.3), radius: 1, x: 0, y: 0)
                             .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.7, blendDuration: 0.1), value: model.targetPage)
                             .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.7, blendDuration: 0.1), value: model.currentPage)
                         
@@ -408,22 +417,22 @@ struct EnhancedComicViewer: View {
                         ZStack {
                             // Un área táctil más grande semi-transparente para mejor toque
                             Rectangle()
-                                .fill(Color.white.opacity(0.001))
+                                .fill(model.useWhiteBackground ? Color.black.opacity(0.001) : Color.white.opacity(0.001))
                                 .frame(width: 44, height: 44)
                             
                             // Indicador de posición
                             VStack(spacing: 0) {
                                 // Mango superior para arrastrar
                                 Capsule()
-                                    .fill(Color.white)
+                                    .fill(model.useWhiteBackground ? Color.black : Color.white)
                                     .frame(width: 6, height: 10)
-                                    .shadow(color: Color.black.opacity(0.6), radius: 1, x: 0, y: 0)
+                                    .shadow(color: model.useWhiteBackground ? Color.white.opacity(0.6) : Color.black.opacity(0.6), radius: 1, x: 0, y: 0)
                                 
                                 // Línea vertical
                                 Rectangle()
-                                    .fill(Color.white)
+                                    .fill(model.useWhiteBackground ? Color.black : Color.white)
                                     .frame(width: 2, height: 6)
-                                    .shadow(color: Color.black.opacity(0.6), radius: 1, x: 0, y: 0)
+                                    .shadow(color: model.useWhiteBackground ? Color.white.opacity(0.6) : Color.black.opacity(0.6), radius: 1, x: 0, y: 0)
                             }
                             .offset(y: -8)
                         }
@@ -470,10 +479,10 @@ struct EnhancedComicViewer: View {
                          "\(model.targetPage! + 1) de \(model.totalPages)" : 
                          "\(model.currentPage + 1) de \(model.totalPages)")
                         .font(.caption)
-                        .foregroundColor(.white)
+                        .foregroundColor(model.useWhiteBackground ? .black : .white)
                         .padding(.vertical, 4)
                         .padding(.horizontal, 10)
-                        .background(Color.black.opacity(0.5))
+                        .background(model.useWhiteBackground ? Color.gray.opacity(0.2) : Color.black.opacity(0.5))
                         .cornerRadius(10)
                         .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.7, blendDuration: 0.1), value: model.targetPage)
                     Spacer()
@@ -487,9 +496,9 @@ struct EnhancedComicViewer: View {
                     }) {
                         Image(systemName: "chevron.left")
                             .font(.title3)
-                            .foregroundColor(.white)
+                            .foregroundColor(model.useWhiteBackground ? .black : .white)
                             .padding(12)
-                            .background(Color.black.opacity(0.5))
+                            .background(model.useWhiteBackground ? Color.gray.opacity(0.2) : Color.black.opacity(0.5))
                             .clipShape(Circle())
                     }
                     .disabled(model.currentPage <= 0)
@@ -500,9 +509,9 @@ struct EnhancedComicViewer: View {
                     }) {
                         Image(systemName: "chevron.right")
                             .font(.title3)
-                            .foregroundColor(.white)
+                            .foregroundColor(model.useWhiteBackground ? .black : .white)
                             .padding(12)
-                            .background(Color.black.opacity(0.5))
+                            .background(model.useWhiteBackground ? Color.gray.opacity(0.2) : Color.black.opacity(0.5))
                             .clipShape(Circle())
                     }
                     .disabled(model.currentPage >= model.totalPages - 1)
@@ -517,14 +526,14 @@ struct EnhancedComicViewer: View {
                         
                         Text(series)
                             .font(.footnote)
-                            .foregroundColor(.white)
-                            .shadow(color: .black, radius: 2, x: 0, y: 1)
+                            .foregroundColor(model.useWhiteBackground ? .black : .white)
+                            .shadow(color: model.useWhiteBackground ? .clear : .black, radius: 2, x: 0, y: 1)
                         
                         if let issue = model.book.book.issueNumber {
                             Text("#\(issue)")
                                 .font(.footnote)
-                                .foregroundColor(.white)
-                                .shadow(color: .black, radius: 2, x: 0, y: 1)
+                                .foregroundColor(model.useWhiteBackground ? .black : .white)
+                                .shadow(color: model.useWhiteBackground ? .clear : .black, radius: 2, x: 0, y: 1)
                         }
                         
                         Spacer()
@@ -576,6 +585,7 @@ struct WebtoonViewerView: View {
                         }
                     )
                 }
+                .background(model.useWhiteBackground ? Color.white : Color.black)
                 .coordinateSpace(name: "scrollView")
                 .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
                     scrollOffset = value
@@ -705,10 +715,16 @@ class IVPagingController: UIViewController {
         let type: NavigationType
     }
     
-    // Definir los layouts de regiones de navegación
-    private let standardNavigationRegions: [NavigationRegion] = [
+    // Definir los layouts de regiones de navegación para modo normal (LTR)
+    private let comicNavigationRegions: [NavigationRegion] = [
         .init(rect: .init(l: 0, t: 0, r: 0.30, b: 1), type: .LEFT),
         .init(rect: .init(l: 0.69, t: 0, r: 1, b: 1), type: .RIGHT),
+    ]
+    
+    // Regiones de navegación para modo manga (RTL) - invertidas respecto a comic
+    private let mangaNavigationRegions: [NavigationRegion] = [
+        .init(rect: .init(l: 0, t: 0, r: 0.30, b: 1), type: .RIGHT),  // Lado izquierdo => acción derecha
+        .init(rect: .init(l: 0.69, t: 0, r: 1, b: 1), type: .LEFT),   // Lado derecho => acción izquierda
     ]
     
     private let lNavigationRegions: [NavigationRegion] = [
@@ -718,9 +734,9 @@ class IVPagingController: UIViewController {
         .init(rect: .init(l: 0.0, t: 0.66, r: 1.0, b: 1.0), type: .RIGHT),
     ]
     
-    // Configuración actual de navegación
+    // Configuración actual de navegación según modo de lectura
     private var currentNavigationRegions: [NavigationRegion] {
-        return standardNavigationRegions
+        return model.readingMode == .PAGED_MANGA ? mangaNavigationRegions : comicNavigationRegions
     }
     
     init(model: ComicViewerModel) {
@@ -764,7 +780,7 @@ class IVPagingController: UIViewController {
         
         // Configurar el collection view para usar todo el espacio disponible
         collectionView = UICollectionView(frame: UIScreen.main.bounds, collectionViewLayout: layout)
-        collectionView.backgroundColor = .black
+        collectionView.backgroundColor = model.useWhiteBackground ? .white : .black
         collectionView.isPagingEnabled = true
         collectionView.showsHorizontalScrollIndicator = false
         collectionView.showsVerticalScrollIndicator = false
@@ -819,7 +835,7 @@ class IVPagingController: UIViewController {
                 self.updateReadingMode()
             }
             .store(in: &cancellables)
-            
+
         // Nuevo monitor para cuando se suelta la barra de progreso
         model.$isDraggingProgress
             .sink { [weak self] isDragging in
@@ -827,6 +843,22 @@ class IVPagingController: UIViewController {
                 // Cuando se deja de arrastrar, nos desplazamos a la página actual
                 DispatchQueue.main.async {
                     self.scrollToPage(self.model.currentPage)
+                }
+            }
+            .store(in: &cancellables)
+            
+        // Escuchar cambios en la configuración de fondo blanco
+        model.$useWhiteBackground
+            .sink { [weak self] useWhite in
+                guard let self = self else { return }
+                // Actualizar el fondo del collection view
+                self.collectionView.backgroundColor = useWhite ? .white : .black
+                
+                // Actualizar todas las celdas visibles
+                for cell in self.collectionView.visibleCells {
+                    if let pageCell = cell as? ComicPageCell {
+                        pageCell.useWhiteBackground = useWhite
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -861,46 +893,23 @@ class IVPagingController: UIViewController {
         }
         
         // Determinar la acción según la región tocada
-        let action = getNavigationAction(for: location)
-        handleNavigationAction(action)
-    }
-    
-    private func getNavigationAction(for point: CGPoint) -> NavigationRegion.NavigationType {
-        // Determinar en qué región se tocó
         for region in currentNavigationRegions {
-            if region.rect.rect(for: view.bounds.size).contains(point) {
-                return adjustActionForReadingMode(region.type)
+            if region.rect.rect(for: view.bounds.size).contains(location) {
+                switch region.type {
+                case .LEFT:
+                    model.previousPage()
+                    return
+                case .RIGHT:
+                    model.nextPage()
+                    return
+                default:
+                    break
+                }
             }
         }
         
         // Si no está en ninguna región definida, mostrar/ocultar el menú
-        return .MENU
-    }
-    
-    private func adjustActionForReadingMode(_ action: NavigationRegion.NavigationType) -> NavigationRegion.NavigationType {
-        // Ajustar la acción según el modo de lectura (invertir para manga)
-        if model.readingMode.isInverted {
-            switch action {
-            case .LEFT:
-                return .RIGHT
-            case .RIGHT:
-                return .LEFT
-            default:
-                return action
-            }
-        }
-        return action
-    }
-    
-    private func handleNavigationAction(_ action: NavigationRegion.NavigationType) {
-        switch action {
-        case .MENU:
-            model.showControls.toggle()
-        case .LEFT:
-            model.previousPage()
-        case .RIGHT:
-            model.nextPage()
-        }
+        model.showControls.toggle()
     }
     
     func updateReadingMode() {
@@ -910,6 +919,13 @@ class IVPagingController: UIViewController {
         
         // Actualizar la transformación
         setReadingOrder()
+        
+        // Actualizar el comportamiento de desplazamiento de todas las celdas visibles
+        let visibleCells = collectionView.visibleCells.compactMap { $0 as? ComicPageCell }
+        for cell in visibleCells {
+            cell.scrollView.allowVerticalScroll = model.readingMode == .VERTICAL
+            cell.scrollView.updateScrollBehavior()
+        }
         
         // Volver a cargar los datos
         collectionView.reloadData()
@@ -1043,7 +1059,7 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
             
             if pageIndex < model.pages.count {
                 let image = model.pages[pageIndex]
-                cell.configure(with: image, readingMode: model.readingMode)
+                cell.configure(with: image, readingMode: model.readingMode, useWhiteBackground: model.useWhiteBackground)
                 
                 // Actualizar los gestos para esta celda
                 tapGestureRecognizer.require(toFail: cell.scrollView.doubleTapGesture)
@@ -1143,6 +1159,11 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
 
 class ComicPageCell: UICollectionViewCell {
     var scrollView: ZoomingScrollView
+    var useWhiteBackground: Bool = false {
+        didSet {
+            scrollView.backgroundColor = useWhiteBackground ? .white : .black
+        }
+    }
     
     override init(frame: CGRect) {
         // Usar el frame proporcionado en lugar de un tamaño fijo de pantalla
@@ -1178,12 +1199,19 @@ class ComicPageCell: UICollectionViewCell {
         scrollView.frame = contentView.bounds
     }
     
-    func configure(with image: UIImage, readingMode: ReadingMode) {
+    func configure(with image: UIImage, readingMode: ReadingMode, useWhiteBackground: Bool = false) {
         // Ya no aplicamos transformación para manga
         scrollView.transform = .identity
         
         // Configurar la imagen
         scrollView.display(image: image)
+        
+        // Configurar el bloqueo de scroll vertical según el modo de lectura
+        scrollView.allowVerticalScroll = readingMode == .VERTICAL
+        scrollView.updateScrollBehavior()
+        
+        // Configurar el fondo
+        self.useWhiteBackground = useWhiteBackground
     }
     
     override func prepareForReuse() {
@@ -1199,6 +1227,7 @@ class ZoomingScrollView: UIScrollView {
     var doubleTapGesture: UITapGestureRecognizer!
     private var wrapper: UIView!
     private var postImageSetConstraints: [NSLayoutConstraint] = []
+    var allowVerticalScroll: Bool = true
     
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1213,7 +1242,7 @@ class ZoomingScrollView: UIScrollView {
     }
     
     private func setupScrollView() {
-        backgroundColor = .black
+        backgroundColor = .clear
         showsHorizontalScrollIndicator = false
         showsVerticalScrollIndicator = false
         decelerationRate = .fast
@@ -1237,6 +1266,14 @@ class ZoomingScrollView: UIScrollView {
             verticalScrollIndicatorInsets = .zero
             horizontalScrollIndicatorInsets = .zero
         }
+    }
+    
+    // Método para actualizar la configuración de desplazamiento según el modo de lectura
+    func updateScrollBehavior() {
+        // Configurar el comportamiento de rebote según si permitimos desplazamiento vertical
+        alwaysBounceVertical = allowVerticalScroll
+        // Si estamos en modo vertical (webtoon), permitir rebote, en caso contrario no
+        bounces = allowVerticalScroll
     }
     
     private func setupWrapper() {
@@ -1288,6 +1325,9 @@ class ZoomingScrollView: UIScrollView {
         
         // Actualizar el frame de la imagen
         didUpdateSize(size: image.size)
+        
+        // Actualizar el comportamiento de desplazamiento
+        updateScrollBehavior()
     }
     
     func reset() {
@@ -1476,6 +1516,28 @@ extension ZoomingScrollView: UIScrollViewDelegate {
             right: frameOffsetX
         )
     }
+    
+    // Controlar el desplazamiento vertical
+    override func touchesShouldCancel(in view: UIView) -> Bool {
+        return true
+    }
+    
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if let panGesture = gestureRecognizer as? UIPanGestureRecognizer {
+            let velocity = panGesture.velocity(in: self)
+            
+            // Si el zoom está activo, permitir el desplazamiento en cualquier dirección
+            if zoomScale > minimumZoomScale {
+                return true
+            }
+            
+            // Si el desplazamiento vertical no está permitido y el gesto es principalmente vertical
+            if !allowVerticalScroll && abs(velocity.y) > abs(velocity.x) {
+                return false
+            }
+        }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
 }
 
 // MARK: - Vista Previa
@@ -1496,6 +1558,7 @@ struct EnhancedComicViewer_Previews: PreviewProvider {
 struct ComicSettingsView: View {
     @Binding var readingMode: ReadingMode
     @Binding var doublePaged: Bool
+    @Binding var useWhiteBackground: Bool
     @Binding var isPresented: Bool
     @Environment(\.colorScheme) var colorScheme
     
@@ -1571,7 +1634,7 @@ struct ComicSettingsView: View {
                     }
                 }
                 
-                // Opción de páginas dobles
+                // Opciones adicionales
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Opciones adicionales")
                         .font(.headline)
@@ -1588,6 +1651,22 @@ struct ComicSettingsView: View {
                     }
                     .disabled(readingMode == .VERTICAL)
                     .opacity(readingMode == .VERTICAL ? 0.5 : 1)
+                    .padding(.vertical, 12)
+                    .padding(.horizontal, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(UIColor.secondarySystemBackground))
+                    )
+                    
+                    Toggle(isOn: $useWhiteBackground) {
+                        HStack {
+                            Image(systemName: "rectangles.group.fill")
+                                .foregroundColor(.primary)
+                            
+                            Text("Fondo blanco")
+                                .foregroundColor(.primary)
+                        }
+                    }
                     .padding(.vertical, 12)
                     .padding(.horizontal, 16)
                     .background(

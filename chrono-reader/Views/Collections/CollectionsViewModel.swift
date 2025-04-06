@@ -363,19 +363,49 @@ class CollectionsViewModel: ObservableObject {
     
     // Cargar colecciones
     func loadCollections() {
-        if let storedCollectionsData = storedCollectionsData {
+        if let storedCollectionsData = storedCollectionsData, !storedCollectionsData.isEmpty {
             do {
                 let decoded = try JSONDecoder().decode([Collection].self, from: storedCollectionsData)
-                collections = decoded
-                print("Colecciones cargadas correctamente: \(collections.count)")
+                
+                // Verificar que las colecciones decodificadas no están vacías
+                if !decoded.isEmpty {
+                    // Filtrar colecciones vacías
+                    let validCollections = decoded.filter { !$0.books.isEmpty }
+                    
+                    if validCollections.count < decoded.count {
+                        print("Se eliminaron \(decoded.count - validCollections.count) colecciones vacías")
+                        // Si hay colecciones vacías, guardar solo las válidas
+                        if validCollections.isEmpty {
+                            print("Todas las colecciones estaban vacías, eliminando completamente")
+                            clearAllCollections()
+                            return
+                        } else {
+                            collections = validCollections
+                            saveCollections()
+                        }
+                    } else {
+                        collections = decoded
+                    }
+                    print("Colecciones cargadas correctamente: \(collections.count)")
+                } else {
+                    print("Se decodificaron colecciones, pero el array está vacío")
+                    collections = []
+                }
             } catch {
                 print("Error al decodificar las colecciones: \(error)")
                 collections = []
+                
+                // En caso de error, limpiar completamente el almacenamiento
+                UserDefaults.standard.removeObject(forKey: "collections")
+                UserDefaults.standard.synchronize()
             }
         } else {
-            print("No se encontraron colecciones guardadas")
+            print("No se encontraron colecciones guardadas o los datos están vacíos")
             collections = []
         }
+        
+        // Actualizar colecciones ordenadas
+        updateSortedCollections()
         
         // Cargar los libros disponibles
         loadAvailableBooks()
@@ -488,17 +518,49 @@ class CollectionsViewModel: ObservableObject {
     
     // Método para borrar completamente todas las colecciones
     func clearAllCollections() {
-        collections.removeAll()
-        sortedCollections.removeAll()
+        // Crear nuevos arrays vacíos en lugar de vaciar los existentes
+        collections = []
+        sortedCollections = []
         
-        // Asegurar que se borren todos los datos almacenados
-        storedCollectionsData = nil
-        
-        // Forzar actualización de UserDefaults
+        // Forzar eliminación en UserDefaults con una sincronización más agresiva
         UserDefaults.standard.removeObject(forKey: "collections")
-        UserDefaults.standard.synchronize()
         
-        // Notificar cambios
+        // Guardar un array vacío explícitamente para sobrescribir cualquier dato existente
+        do {
+            let encoder = JSONEncoder()
+            let emptyCollections: [Collection] = []
+            let encoded = try encoder.encode(emptyCollections)
+            storedCollectionsData = encoded
+        } catch {
+            print("Error al codificar colecciones vacías: \(error)")
+        }
+        
+        // Pequeña demora para permitir que el sistema procese la eliminación
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            // Verificar nuevamente para asegurar que realmente se han eliminado
+            UserDefaults.standard.removeObject(forKey: "collections")
+            UserDefaults.standard.synchronize()
+            
+            // Asegurar que se guarda un array vacío de colecciones
+            do {
+                let encoder = JSONEncoder()
+                let emptyCollections: [Collection] = []
+                let encoded = try encoder.encode(emptyCollections)
+                self.storedCollectionsData = encoded
+            } catch {
+                print("Error al codificar colecciones vacías (verificación): \(error)")
+            }
+            
+            // Asegurar que las colecciones estén vacías en memoria
+            self.collections = []
+            self.sortedCollections = []
+            
+            // Notificar cambios
+            self.objectWillChange.send()
+            print("Todas las colecciones han sido eliminadas completamente - verificación adicional realizada")
+        }
+        
+        // Notificar cambios inmediatamente
         objectWillChange.send()
         print("Todas las colecciones han sido eliminadas completamente")
     }

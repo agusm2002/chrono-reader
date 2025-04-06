@@ -16,6 +16,7 @@ import BackgroundTasks
 // Definir alias para evitar ambigüedades
 typealias ZipArchive = ZIPFoundation.Archive
 typealias RarArchive = Unrar.Archive
+typealias BookCollection = Collection
 
 enum SortOption: String, CaseIterable, Identifiable {
     case intelligent = "Auto"
@@ -961,6 +962,10 @@ class HomeViewModel: ObservableObject {
 
     // Función para borrar todos los libros y cargar los de muestra
     func resetToSampleBooks() {
+        // Primero forzar eliminación de colecciones en UserDefaults directamente
+        UserDefaults.standard.removeObject(forKey: "collections")
+        UserDefaults.standard.synchronize()
+        
         // Borrar todos los libros
         books.removeAll()
         
@@ -973,25 +978,33 @@ class HomeViewModel: ObservableObject {
         
         // Resetear las colecciones - asegurarse que se ejecute en la cola principal
         DispatchQueue.main.async {
+            // Limpiar completamente las colecciones
             self.collectionsViewModel.clearAllCollections()
             
-            // Asegurar que las vistas se actualizan
-            self.collectionsViewModel.objectWillChange.send()
-            
-            // Volver a cargar las colecciones para confirmar que están vacías
-            self.collectionsViewModel.loadCollections()
+            // Esperar un poco para asegurar que los cambios se procesen
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                // Verificar que realmente se hayan eliminado
+                if self.collectionsViewModel.collections.isEmpty {
+                    print("Confirmado: las colecciones se han eliminado correctamente")
+                } else {
+                    print("⚠️ ADVERTENCIA: Las colecciones no se eliminaron correctamente")
+                    // Intentar nuevamente
+                    self.collectionsViewModel.clearAllCollections()
+                }
+                
+                // Cargar los libros de muestra después de limpiar todo
+                self.loadSampleBooks()
+                
+                // Guardar los cambios
+                self.saveBooks()
+                
+                // Forzar actualización de la UI
+                self.objectWillChange.send()
+                self.collectionsViewModel.objectWillChange.send()
+                
+                print("Biblioteca reiniciada con libros de muestra y colecciones eliminadas")
+            }
         }
-        
-        // Cargar los libros de muestra
-        loadSampleBooks()
-        
-        // Guardar los cambios
-        saveBooks()
-        
-        // Forzar actualización de la UI
-        objectWillChange.send()
-        
-        print("Biblioteca reiniciada con libros de muestra y colecciones eliminadas")
     }
 
     // Función para actualizar el progreso de un libro
@@ -1243,17 +1256,21 @@ struct HomeView: View {
                     Color.clear.frame(height: viewModel.isHeaderCompact ? 40 : (viewModel.isSearching ? 130 : 185))
 
                     // Contenido principal
-                    VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 0) { // Eliminar por completo el espaciado entre secciones
                         // Sección de "Continuar leyendo"
                         continueLeerSection
                         
                         // Sección de "Tus colecciones"
                         coleccionesSection
+                            .padding(.bottom, 0) // Asegurar que no haya padding inferior
+                            .padding(.top, 0) // Asegurar que no haya padding superior
                         
                         // Sección de "Todos los libros"
                         todosLibrosSection
+                            .padding(.top, 0) // Asegurar que no haya padding superior
+                            .padding(.bottom, 0) // Asegurar que no haya padding inferior
 
-                        Spacer(minLength: 100) // Aumentado de 90 a 100 para la barra de navegación más alta
+                        Spacer(minLength: 120) // Aumentado para dar más espacio al final
                     }
                 }
                 .coordinateSpace(name: "scroll")
@@ -1337,34 +1354,73 @@ struct HomeView: View {
     private var continueLeerSection: some View {
         Group {
             if !viewModel.isSearching && viewModel.selectedCategory == .all && !viewModel.booksInProgress.isEmpty && viewModel.showRecentSection {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 0) {
+                    // Header con espaciado exactamente igual al de "Todos los títulos"
                     HeaderGradientText("Continuar leyendo", fontSize: 20)
                         .padding(.horizontal, 24)
+                        .padding(.vertical, 4)
+                        .padding(.top, 8)
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 20) {
                             ForEach(viewModel.booksInProgress) { book in
-                                VStack(alignment: .leading, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 0) {
                                     BookItemView(book: book, showTitle: false, onDelete: {
                                         viewModel.deleteBook(book: book)
                                     }, onToggleFavorite: {
                                         viewModel.toggleFavorite(book: book)
                                     })
                                     .frame(width: UIScreen.main.bounds.width / 2 - 30)
+                                    .padding(.bottom, 10) // Aumentar el espacio entre portada y título
                                     
                                     Text(book.displayTitle)
                                         .font(.system(size: 13, weight: .medium))
                                         .lineLimit(1)
                                         .foregroundColor(.primary)
                                         .frame(width: UIScreen.main.bounds.width / 2 - 30, alignment: .leading)
+                                        .padding(.top, 0) // Quitar el padding negativo
+                                    
+                                    // Agregar las etiquetas de información
+                                    HStack(spacing: 4) {
+                                        if let localURL = book.metadata.localURL,
+                                           let fileSize = try? FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? Int64 {
+                                            Text(formatFileSize(fileSize))
+                                                .font(.system(size: 10, weight: .medium))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.gray.opacity(0.15))
+                                                .cornerRadius(4)
+                                        }
+                                        
+                                        Text(book.book.type.rawValue.uppercased())
+                                            .font(.system(size: 10, weight: .medium))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.gray.opacity(0.15))
+                                            .foregroundColor(.primary)
+                                            .cornerRadius(4)
+                                        
+                                        if let issue = book.book.issueNumber {
+                                            Text("#\(issue)")
+                                                .font(.system(size: 10, weight: .semibold))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.gray.opacity(0.15))
+                                                .cornerRadius(4)
+                                        }
+                                    }
+                                    .frame(width: UIScreen.main.bounds.width / 2 - 30, alignment: .leading)
+                                    .padding(.top, 2)
                                 }
                                 .frame(width: UIScreen.main.bounds.width / 2 - 30)
                             }
                         }
                         .padding(.horizontal, 24)
+                        .padding(.bottom, 4)
                     }
+                    .padding(.top, 0)
                 }
-                .padding(.bottom)
+                .padding(.bottom, 4) // Mínimo espacio entre secciones
             }
         }
     }
@@ -1373,60 +1429,72 @@ struct HomeView: View {
     private var coleccionesSection: some View {
         Group {
             if !viewModel.isSearching && viewModel.selectedCategory == .all && !viewModel.collectionsViewModel.collections.isEmpty && viewModel.showCollectionsSection {
-                VStack(alignment: .leading, spacing: 16) {
-                    HeaderGradientText("Tus colecciones", fontSize: 20)
-                        .padding(.horizontal, 24)
+                VStack(alignment: .leading, spacing: 0) {
+                    // Título de sección con botón para ver todas - espaciado coincidente con otras secciones
+                    HStack {
+                        HeaderGradientText("Tus colecciones", fontSize: 20)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 4)
+                            .padding(.top, 4) // Reducir al mínimo para acercar a la sección anterior
+                        
+                        Spacer()
+                        
+                        // Texto con la cantidad de colecciones
+                        Text("\(viewModel.collectionsViewModel.collections.count) colecciones")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .padding(.trailing, 24)
+                    }
+                    .padding(.bottom, 0)
 
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 20) {
-                            ForEach(viewModel.collectionsViewModel.collections) { collection in
-                                NavigationLink(destination: CollectionDetailView(collection: collection, viewModel: viewModel.collectionsViewModel)) {
-                                    VStack(alignment: .leading, spacing: 0) {
-                                        StackedCoversView(books: viewModel.collectionsViewModel.booksInCollection(collection))
-                                            .frame(height: 180)
-                                            .padding(.top, 12)
-                                            .padding(.horizontal, 10)
-                                        
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text(collection.name)
-                                                .font(.headline)
-                                                .foregroundColor(.primary)
-                                            
-                                            let booksCount = viewModel.collectionsViewModel.booksInCollection(collection).count
-                                            Text("\(booksCount) \(booksCount == 1 ? "libro" : "libros")")
-                                                .font(.subheadline)
-                                                .foregroundColor(.secondary)
-                                        }
-                                        .padding(12)
-                                        .frame(maxWidth: .infinity)
-                                        .background(Color.gray.opacity(0.1))
-                                    }
-                                    .frame(width: 240)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 16)
-                                            .fill(collection.color.opacity(0.15))
+                    // Área con fondo sutil y carrusel de colecciones
+                    ZStack {
+                        // Fondo sutil para toda la sección
+                        Rectangle()
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color(.systemBackground).opacity(0.3),
+                                        Color(.systemBackground).opacity(0)
+                                    ]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                            .frame(height: 300) // Reducir aún más la altura del fondo
+                        
+                        // Carrusel de colecciones con efectos visuales mejorados
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 24) { // Espaciado entre tarjetas
+                                ForEach(Array(viewModel.collectionsViewModel.collections.enumerated()), id: \.element.id) { index, collection in
+                                    CollectionCardView(
+                                        collection: collection,
+                                        books: viewModel.collectionsViewModel.booksInCollection(collection),
+                                        viewModel: viewModel.collectionsViewModel,
+                                        index: index
                                     )
-                                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
                                 }
                             }
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 0) // Eliminar completamente el padding vertical
                         }
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 8)
                     }
                 }
-                .padding(.bottom)
+                .padding(.top, 0)
+                .padding(.bottom, 4) // Mínimo espacio entre secciones
             }
         }
     }
     
     // Sección "Todos los libros"
     private var todosLibrosSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 0) {
             // Header de la sección
-            HStack {
+            HStack(alignment: .center) {
                 HeaderGradientText(viewModel.isSearching ? "Resultados de búsqueda" : "Todos los \(viewModel.selectedCategory == .all ? "títulos" : viewModel.selectedCategory.rawValue)", fontSize: 20)
                     .padding(.horizontal, 24)
+                    .padding(.vertical, 4)
+                    .padding(.top, 4) // Reducir al mínimo para acercar a la sección anterior
 
                 Spacer()
                 
@@ -1475,6 +1543,8 @@ struct HomeView: View {
                 // Botón para cambiar el layout de la cuadrícula
                 gridLayoutButton
             }
+            .padding(.bottom, 4) // Reducir el espacio entre el header y el contenido
+            // Eliminamos el padding top ya que lo agregamos al HeaderGradientText
 
             // Contenido basado en el estado
             Group {
@@ -1490,10 +1560,12 @@ struct HomeView: View {
                         viewModel.toggleFavorite(book: book)
                     })
                     .padding(.horizontal, 8)
+                    .padding(.top, 0) // Eliminar el espacio entre el título y las portadas
                     .id("bookGridView") // ID constante para preservar el estado durante el filtrado
                 }
             }
         }
+        .padding(.bottom, 4) // Mínimo espacio al final de la sección
     }
     
     // Botón para cambiar el layout de la cuadrícula
@@ -1593,6 +1665,14 @@ struct HomeView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    
+    // Función para formatear el tamaño de archivos
+    private func formatFileSize(_ size: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useAll]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: size)
     }
     
     // Vista del encabezado
@@ -1859,6 +1939,159 @@ class LoadingManager: ObservableObject {
     func stopLoading() {
         DispatchQueue.main.async {
             self.isLoading = false
+        }
+    }
+}
+
+// Helper para esquinas redondeadas específicas
+struct RoundedCorner: Shape {
+    var radius: CGFloat = .infinity
+    var corners: UIRectCorner = .allCorners
+
+    func path(in rect: CGRect) -> Path {
+        let path = UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius))
+        return Path(path.cgPath)
+    }
+}
+
+// Vista de tarjeta de colección con animaciones
+struct CollectionCardView: View {
+    let collection: Collection
+    let books: [CompleteBook]
+    let viewModel: CollectionsViewModel
+    let index: Int
+    
+    @State private var isVisible = false
+    @State private var isHovered = false
+    
+    var body: some View {
+        NavigationLink(destination: CollectionDetailView(collection: collection, viewModel: viewModel)) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Contenedor principal más horizontal
+                ZStack(alignment: .bottom) {
+                    // Fondo con gradiente basado en el color de la colección
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    collection.color.opacity(0.25),
+                                    collection.color.opacity(0.15)
+                                ]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .overlay(
+                            // Borde sutil
+                            RoundedRectangle(cornerRadius: 16)
+                                .strokeBorder(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            collection.color.opacity(0.6),
+                                            collection.color.opacity(0.2)
+                                        ]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1.5
+                                )
+                        )
+                    
+                    // Portadas de libros con efectos visuales (área más grande)
+                    HomeCollectionView(books: books)
+                        .frame(height: 180) // Reducir la altura de las portadas
+                        .padding(.horizontal, 30) // Más espacio horizontal
+                        .padding(.vertical, 8) // Reducir aún más el padding vertical
+                }
+                .frame(height: 200) // Reducir la altura total del contenedor de portadas
+                
+                // Información de la colección con estilo mejorado
+                VStack(alignment: .leading, spacing: 5) {
+                    // Nombre con badge de número
+                    HStack(alignment: .center, spacing: 8) {
+                        Text(collection.name)
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        
+                        Text("\(books.count)")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        collection.color.opacity(0.9),
+                                        collection.color.opacity(0.7)
+                                    ]),
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .clipShape(Capsule())
+                    }
+                    
+                    // Eliminada la sección de autores
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8) // Reducir el padding vertical
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    // Fondo de vidrio para el área de información
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color(.systemBackground).opacity(0.8),
+                            Color(.systemBackground).opacity(0.7)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .clipShape(
+                    RoundedCorner(
+                        radius: 16,
+                        corners: [.bottomLeft, .bottomRight]
+                    )
+                )
+            }
+            .frame(width: 360, height: 245) // Reducir la altura para compensar el texto eliminado
+            .background(Color(.systemBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            // Efecto de profundidad con múltiples sombras
+            .shadow(color: Color.black.opacity(0.08), radius: 1, x: 0, y: 1)
+            .shadow(color: Color.black.opacity(isHovered ? 0.15 : 0.1), radius: isHovered ? 15 : 10, x: 0, y: isHovered ? 8 : 5)
+            // Efectos de animación
+            .scaleEffect(isHovered ? 1.03 : 1.0)
+            .rotation3DEffect(
+                .degrees(isHovered ? 2 : 0),
+                axis: (x: 0, y: 1, z: 0),
+                anchor: .center,
+                anchorZ: 0.0,
+                perspective: 1.0
+            )
+            .brightness(isHovered ? 0.03 : 0)
+            // Animaciones de aparición
+            .opacity(isVisible ? 1 : 0)
+            .offset(y: isVisible ? 0 : 20)
+            .blur(radius: isVisible ? 0 : 3)
+            // Configuración de animaciones
+            .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.08 * Double(index)), value: isVisible)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+            // Eventos de aparición
+            .onAppear {
+                // Animamos la aparición con un retraso basado en el índice
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15 + (0.06 * Double(index))) {
+                    withAnimation {
+                        isVisible = true
+                    }
+                }
+            }
+            .onHover { hovering in
+                withAnimation {
+                    isHovered = hovering
+                }
+            }
         }
     }
 }

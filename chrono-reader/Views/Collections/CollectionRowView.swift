@@ -144,12 +144,40 @@ struct CollectionDetailView: View {
     @State private var selectedBook: CompleteBook? = nil
     @State private var showingComicViewer = false
     @State private var animateTransition = false
-    @State private var isDragging = false
-    @State private var draggedBookIndex: Int? = nil
-    @State private var dragCancellationTask: DispatchWorkItem?
+    @State private var showingSortOptions = false
+    @State private var sortOption: SortOption = .default
+    
+    // Opciones de ordenación
+    enum SortOption: String, CaseIterable {
+        case `default` = "Por defecto"
+        case title = "Por título"
+        case author = "Por autor"
+        case recent = "Más recientes"
+        case progress = "Por progreso"
+    }
     
     var books: [CompleteBook] {
-        viewModel.booksInCollection(collection)
+        let sortedBooks = viewModel.booksInCollection(collection)
+        
+        switch sortOption {
+        case .default:
+            return sortedBooks
+        case .title:
+            return sortedBooks.sorted(by: { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending })
+        case .author:
+            return sortedBooks.sorted(by: { $0.book.author.localizedCaseInsensitiveCompare($1.book.author) == .orderedAscending })
+        case .recent:
+            return sortedBooks.sorted(by: { 
+                guard let date1 = $0.book.lastReadDate, let date2 = $1.book.lastReadDate else {
+                    if $0.book.lastReadDate != nil { return true }
+                    if $1.book.lastReadDate != nil { return false }
+                    return false
+                }
+                return date1 > date2
+            })
+        case .progress:
+            return sortedBooks.sorted(by: { $0.book.progress > $1.book.progress })
+        }
     }
     
     var body: some View {
@@ -170,19 +198,37 @@ struct CollectionDetailView: View {
                     
                     Spacer()
                     
-                    // Indicador de reordenamiento
+                    // Botón de filtros
                     if books.count > 1 {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                                .font(.system(size: 12))
-                            Text("Arrastra para reordenar")
-                                .font(.caption)
+                        Menu {
+                            ForEach(SortOption.allCases, id: \.self) { option in
+                                Button(action: {
+                                    sortOption = option
+                                }) {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if sortOption == option {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.up.arrow.down")
+                                Text(sortOption.rawValue)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                            }
+                            .font(.subheadline)
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color(.systemGray6))
+                            )
                         }
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color(.systemGray6))
-                        .cornerRadius(16)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -282,53 +328,6 @@ struct CollectionDetailView: View {
                                 }
                             }
                             .brightness(animateTransition && selectedBook?.id == book.id ? 0.1 : 0)
-                            .opacity(isDragging ? (books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? 1.0 : 0.6) : 1.0)
-                            .scaleEffect(isDragging && books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? 1.05 : 1.0)
-                            .shadow(color: isDragging && books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex ? Color.black.opacity(0.3) : Color.clear, radius: 6, x: 0, y: 3)
-                            .overlay(
-                                ZStack {
-                                    if isDragging {
-                                        if books.firstIndex(where: { $0.id == book.id }) == draggedBookIndex {
-                                            // Estilo para el elemento que se está arrastrando
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(collection.color, lineWidth: 3)
-                                            
-                                            // Icono de mover
-                                            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                                                .font(.system(size: 20, weight: .bold))
-                                                .foregroundColor(.white)
-                                                .padding(8)
-                                                .background(collection.color)
-                                                .clipShape(Circle())
-                                                .shadow(color: .black.opacity(0.3), radius: 3, x: 0, y: 2)
-                                        } else {
-                                            // Indicador de destino potencial
-                                            RoundedRectangle(cornerRadius: 8)
-                                                .stroke(Color.gray.opacity(0.5), style: StrokeStyle(lineWidth: 2, dash: [5]))
-                                        }
-                                    }
-                                }
-                            )
-                            .contentShape(Rectangle())
-                            .onDrag {
-                                if let index = books.firstIndex(where: { $0.id == book.id }) {
-                                    print("Iniciando arrastre de libro: \(book.displayTitle) [índice: \(index)]")
-                                    withAnimation(.easeIn(duration: 0.2)) {
-                                        isDragging = true
-                                        draggedBookIndex = index
-                                    }
-                                    return NSItemProvider(object: "\(index)" as NSString)
-                                }
-                                return NSItemProvider()
-                            }
-                            .onDrop(of: [.text], delegate: BookDropDelegate(
-                                book: book,
-                                collection: collection,
-                                viewModel: viewModel,
-                                isDragging: $isDragging,
-                                draggedBookIndex: $draggedBookIndex,
-                                books: books
-                            ))
                         
                             // Información del libro
                             VStack(alignment: .leading, spacing: 4) {
@@ -337,13 +336,32 @@ struct CollectionDetailView: View {
                                     .fontWeight(.medium)
                                     .lineLimit(2)
                                 
-                                Text(book.book.author)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
+                                HStack(spacing: 4) {
+                                    if let localURL = book.metadata.localURL,
+                                       let fileSize = try? FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? Int64 {
+                                        Text(formatFileSize(fileSize))
+                                            .font(.system(size: 10, weight: .medium))
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(Color.gray.opacity(0.15))
+                                            .cornerRadius(4)
+                                        
+                                        if let pageCount = book.book.pageCount, pageCount > 0 {
+                                            Text("\(pageCount) págs.")
+                                                .font(.system(size: 10, weight: .medium))
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.gray.opacity(0.15))
+                                                .cornerRadius(4)
+                                        }
+                                        
+                                        typeBadge(for: book)
+                                    } else {
+                                        typeBadge(for: book)
+                                    }
+                                }
                             }
                         }
-                        .opacity(isDragging ? 0.7 : 1.0)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -352,20 +370,6 @@ struct CollectionDetailView: View {
         }
         .navigationTitle(collection.name)
         .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: isDragging) { newValue in
-            if !newValue {
-                // Si termina el arrastre y no se procesó correctamente en el drop
-                // programamos una limpieza del estado
-                dragCancellationTask?.cancel()
-                let task = DispatchWorkItem {
-                    // Limpiar el estado completamente
-                    draggedBookIndex = nil
-                    print("Arrastre de libros cancelado/completado - estado limpiado")
-                }
-                dragCancellationTask = task
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: task)
-            }
-        }
         .fullScreenCover(isPresented: $showingComicViewer, onDismiss: {
             withAnimation {
                 animateTransition = false
@@ -445,98 +449,36 @@ struct CollectionDetailView: View {
             return formatter.string(from: date)
         }
     }
-}
-
-// Delegado para manejar el drop de libros
-struct BookDropDelegate: DropDelegate {
-    let book: CompleteBook
-    let collection: Collection
-    let viewModel: CollectionsViewModel
-    @Binding var isDragging: Bool
-    @Binding var draggedBookIndex: Int?
-    let books: [CompleteBook]
     
-    func performDrop(info: DropInfo) -> Bool {
-        // Verificar que tenemos índices válidos para realizar el cambio
-        guard let draggedIndex = draggedBookIndex,
-              draggedIndex < books.count,
-              let targetIndex = books.firstIndex(where: { $0.id == book.id }) else {
-            
-            // Limpiar estado si no hay cambios válidos
-            DispatchQueue.main.async {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isDragging = false
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    draggedBookIndex = nil
-                }
-            }
-            print("Drop cancelado: índices inválidos")
-            return false
+    private func typeBadge(for book: CompleteBook) -> some View {
+        let badgeText: String
+        
+        switch book.book.type {
+        case .cbz:
+            badgeText = "CBZ"
+        case .cbr:
+            badgeText = "CBR"
+        case .epub:
+            badgeText = "EPUB"
+        case .pdf:
+            badgeText = "PDF"
+        default:
+            badgeText = "LIBRO"
         }
         
-        // Si los índices son iguales, no hay nada que hacer
-        if draggedIndex == targetIndex {
-            DispatchQueue.main.async {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isDragging = false
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    draggedBookIndex = nil
-                }
-            }
-            print("Drop cancelado: mismo índice")
-            return false
-        }
-        
-        print("Realizando drop: moviendo libro de posición \(draggedIndex) a \(targetIndex)")
-        
-        DispatchQueue.main.async {
-            // Crear una copia de los libros actuales y reordenarlos
-            var updatedBooks = books
-            let draggedBook = updatedBooks[draggedIndex]
-            updatedBooks.remove(at: draggedIndex)
-            updatedBooks.insert(draggedBook, at: targetIndex)
-            
-            print("Libros reordenados, actualizando colección: \(collection.name)")
-            for (i, book) in updatedBooks.enumerated() {
-                print("[\(i)] - \(book.displayTitle)")
-            }
-            
-            // Actualizar el orden en el modelo
-            viewModel.updateBooksOrder(in: collection, books: updatedBooks)
-            
-            // Limpiar estado
-            withAnimation(.easeOut(duration: 0.2)) {
-                isDragging = false
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                draggedBookIndex = nil
-            }
-        }
-        
-        return true
+        return Text(badgeText)
+            .font(.system(size: 10, weight: .medium))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Color.gray.opacity(0.15))
+            .cornerRadius(4)
     }
     
-    func dropEntered(info: DropInfo) {
-        // No realizamos actualizaciones en tiempo real para evitar parpadeos
-    }
-    
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        return DropProposal(operation: .move)
-    }
-    
-    func dropExited(info: DropInfo) {
-        // No hacemos nada para evitar parpadeos
-    }
-    
-    func validateDrop(info: DropInfo) -> Bool {
-        guard let draggedIndex = draggedBookIndex,
-              draggedIndex < books.count,
-              let targetIndex = books.firstIndex(where: { $0.id == book.id }) else {
-            return false
-        }
-        return true
+    private func formatFileSize(_ size: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        return formatter.string(fromByteCount: size)
     }
 }
 

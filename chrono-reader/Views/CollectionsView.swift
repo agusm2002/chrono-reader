@@ -4,9 +4,6 @@ import SwiftUI
 
 struct CollectionsView: View {
     @StateObject private var viewModel = CollectionsViewModel()
-    @State private var isDragging = false
-    @State private var draggedItemIndex: Int?
-    @State private var dragCancellationTask: DispatchWorkItem?
     @AppStorage("collectionsHeaderCompact") private var storedIsHeaderCompact: Bool = false
     @State private var isHeaderCompact: Bool = false
     
@@ -155,7 +152,7 @@ struct CollectionsView: View {
     
     private var collectionsListLayer: some View {
         LazyVStack(spacing: 0) {
-            ForEach(Array(viewModel.sortedCollections.enumerated()), id: \.element.id) { index, collection in
+            ForEach(viewModel.sortedCollections) { collection in
                 CollectionRowView(
                     collection: collection,
                     viewModel: viewModel,
@@ -165,31 +162,6 @@ struct CollectionsView: View {
                 )
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
-                .opacity(isDragging && draggedItemIndex != index ? 0.7 : 1.0)
-                .scaleEffect(isDragging && draggedItemIndex == index ? 1.03 : 1.0)
-                .contentShape(Rectangle())
-                .onDrag {
-                    self.draggedItemIndex = index
-                    self.isDragging = true
-                    return NSItemProvider(object: "\(index)" as NSString)
-                }
-                .onDrop(of: [.text], delegate: CollectionDropDelegate(
-                    item: collection,
-                    currentIndex: index,
-                    viewModel: viewModel,
-                    isDragging: $isDragging,
-                    draggedItemIndex: $draggedItemIndex
-                ))
-                .onChange(of: isDragging) { newValue in
-                    if !newValue {
-                        dragCancellationTask?.cancel()
-                        let task = DispatchWorkItem {
-                            draggedItemIndex = nil
-                        }
-                        dragCancellationTask = task
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: task)
-                    }
-                }
                 // Eliminar animaciones durante el scroll
                 .transaction { transaction in
                     transaction.animation = nil
@@ -223,56 +195,6 @@ struct CollectionsView: View {
             .padding(.top, 16)
         }
         .padding()
-    }
-}
-
-// Delegado para manejar el drop de colecciones
-struct CollectionDropDelegate: DropDelegate {
-    let item: Collection
-    let currentIndex: Int
-    let viewModel: CollectionsViewModel
-    @Binding var isDragging: Bool
-    @Binding var draggedItemIndex: Int?
-    
-    func performDrop(info: DropInfo) -> Bool {
-        guard let draggedItemIndex = self.draggedItemIndex else { 
-            return false 
-        }
-        
-        if draggedItemIndex != currentIndex {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                viewModel.updateCollectionsOrder(from: draggedItemIndex, to: currentIndex)
-            }
-        }
-        
-        // Limpiar el estado
-        DispatchQueue.main.async {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                self.isDragging = false
-            }
-            // Retrasamos la limpieza del índice para evitar saltos visuales
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                self.draggedItemIndex = nil
-            }
-        }
-        
-        return true
-    }
-    
-    func dropEntered(info: DropInfo) {
-        // No hacemos cambios reales hasta que el drop se complete
-    }
-    
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        return DropProposal(operation: .move)
-    }
-    
-    func dropExited(info: DropInfo) {
-        // No hacemos nada aquí para mantener estado consistente
-    }
-    
-    func validateDrop(info: DropInfo) -> Bool {
-        return draggedItemIndex != nil && draggedItemIndex != currentIndex
     }
 }
 
