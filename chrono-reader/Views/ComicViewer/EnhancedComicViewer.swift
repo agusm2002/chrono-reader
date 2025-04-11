@@ -50,6 +50,8 @@ class ComicViewerModel: ObservableObject {
     @Published var pendingInitialScroll: Bool = false
     @Published var isDraggingProgress: Bool = false
     @Published var targetPage: Int? = nil
+    @Published var lastDraggedPage: Int? = nil
+    @Published var showThumbnails: Bool = true
     @Published var webtoonScrollOffset: CGFloat = 0
     @Published var webtoonPages: [WebtoonPage] = []
     @Published var doublePages: [DoublePage] = []
@@ -479,6 +481,7 @@ struct EnhancedComicViewer: View {
                     doublePaged: $model.doublePaged,
                     isolateFirstPage: $model.isolateFirstPage,
                     useWhiteBackground: $model.useWhiteBackground,
+                    showThumbnails: $model.showThumbnails,
                     isPresented: $model.showSettings
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -631,6 +634,16 @@ struct EnhancedComicViewer: View {
                                         
                                         // Almacenar la página objetivo durante el arrastre
                                         model.targetPage = max(0, min(newPage, model.totalPages - 1))
+                                        
+                                        // Generar feedback háptico cuando cambia de página durante el arrastre
+                                        if model.lastDraggedPage != model.targetPage {
+                                            let feedbackGenerator = UIImpactFeedbackGenerator(style: .rigid)
+                                            feedbackGenerator.prepare()
+                                            feedbackGenerator.impactOccurred()
+                                            
+                                            // Actualizar la última página arrastrada
+                                            model.lastDraggedPage = model.targetPage
+                                        }
                                     }
                                     .onEnded { value in
                                         // Al soltar, actualizar la página actual con la página objetivo
@@ -638,6 +651,9 @@ struct EnhancedComicViewer: View {
                                             model.currentPage = targetPage
                                             model.targetPage = nil
                                         }
+                                        
+                                        // Resetear la última página arrastrada
+                                        model.lastDraggedPage = nil
                                         
                                         // Marcar que ya no estamos arrastrando
                                         model.isDraggingProgress = false
@@ -698,6 +714,16 @@ struct EnhancedComicViewer: View {
                                     
                                     // Almacenar la página objetivo durante el arrastre
                                     model.targetPage = max(0, min(newPage, model.totalPages - 1))
+                                    
+                                    // Generar feedback háptico cuando cambia de página durante el arrastre
+                                    if model.lastDraggedPage != model.targetPage {
+                                        let feedbackGenerator = UIImpactFeedbackGenerator(style: .rigid)
+                                        feedbackGenerator.prepare()
+                                        feedbackGenerator.impactOccurred()
+                                        
+                                        // Actualizar la última página arrastrada
+                                        model.lastDraggedPage = model.targetPage
+                                    }
                                 }
                                 .onEnded { value in
                                     // Al soltar, actualizar la página actual con la página objetivo
@@ -705,6 +731,9 @@ struct EnhancedComicViewer: View {
                                         model.currentPage = targetPage
                                         model.targetPage = nil
                                     }
+                                    
+                                    // Resetear la última página arrastrada
+                                    model.lastDraggedPage = nil
                                     
                                     // Marcar que ya no estamos arrastrando
                                     model.isDraggingProgress = false
@@ -717,7 +746,21 @@ struct EnhancedComicViewer: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 5)
                 
-                // MOVIDO: Contador de páginas centrado
+                // Vista previa de miniaturas
+                if model.showThumbnails && !model.pages.isEmpty {
+                    ThumbnailsPreview(
+                        pages: model.pages,
+                        currentPage: model.targetPage ?? model.currentPage,
+                        totalPages: model.totalPages,
+                        useWhiteBackground: model.useWhiteBackground,
+                        onPageSelected: { page in
+                            model.currentPage = page
+                        }
+                    )
+                    .padding(.bottom, 10)
+                }
+                
+                // Contador de páginas centrado
                 HStack {
                     Spacer()
                     Text(model.targetPage != nil ? 
@@ -2091,6 +2134,10 @@ class ZoomingScrollView: UIScrollView {
         zoomScale = 1.0
         contentOffset = .zero
         
+        // Limpiar restricciones anteriores
+        NSLayoutConstraint.deactivate(postImageSetConstraints)
+        postImageSetConstraints.removeAll()
+        
         // Limpiar las vistas anteriores de forma segura
         if let existingWrapper = wrapper, existingWrapper != view {
             // Desactivar todas las constraints existentes de manera segura
@@ -2227,6 +2274,7 @@ struct ComicSettingsView: View {
     @Binding var doublePaged: Bool
     @Binding var isolateFirstPage: Bool
     @Binding var useWhiteBackground: Bool
+    @Binding var showThumbnails: Bool
     @Binding var isPresented: Bool
     @Environment(\.colorScheme) var colorScheme
     
@@ -2367,6 +2415,16 @@ struct ComicSettingsView: View {
                                     isEnabled: true,
                                     isActive: useWhiteBackground,
                                     binding: $useWhiteBackground
+                                )
+                                
+                                // Opción para mostrar/ocultar miniaturas
+                                SettingsToggleRow(
+                                    title: "Vista previa de miniaturas",
+                                    subtitle: "Muestra miniaturas de las páginas encima de la barra de progreso",
+                                    iconName: "photo.on.rectangle",
+                                    isEnabled: true,
+                                    isActive: showThumbnails,
+                                    binding: $showThumbnails
                                 )
                             }
                             .padding(.horizontal, 24)
@@ -2600,5 +2658,82 @@ extension IVPagingController: UICollectionViewDataSourcePrefetching {
     func collectionView(_ collectionView: UICollectionView, cancelPrefetchingForItemsAt indexPaths: [IndexPath]) {
         // Cancelar cualquier carga de imágenes para elementos que ya no son necesarios
         // Como estamos usando imágenes ya cargadas en memoria, no necesitamos hacer nada aquí
+    }
+}
+
+// MARK: - Vista previa de miniaturas
+
+struct ThumbnailsPreview: View {
+    let pages: [UIImage]
+    let currentPage: Int
+    let totalPages: Int
+    let useWhiteBackground: Bool
+    let onPageSelected: (Int) -> Void
+    
+    @State private var scrollViewWidth: CGFloat = 0
+    
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollViewReader { scrollProxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(0..<pages.count, id: \.self) { index in
+                            Button(action: {
+                                onPageSelected(index)
+                            }) {
+                                Image(uiImage: pages[index])
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 60, height: 90)
+                                    .cornerRadius(5)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 5)
+                                            .stroke(currentPage == index ? 
+                                                    (useWhiteBackground ? Color.black : Color.white) : 
+                                                    Color.clear, 
+                                                   lineWidth: 2)
+                                    )
+                                    .shadow(color: Color.black.opacity(0.3), radius: 2, x: 0, y: 1)
+                                    .overlay(
+                                        Text("\(index + 1)")
+                                            .font(.system(size: 10))
+                                            .fontWeight(.bold)
+                                            .foregroundColor(.white)
+                                            .padding(4)
+                                            .background(Color.black.opacity(0.6))
+                                            .cornerRadius(5)
+                                            .padding(2),
+                                        alignment: .bottomTrailing
+                                    )
+                                    .id(index)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 5)
+                    .onAppear {
+                        scrollViewWidth = geometry.size.width
+                        // Desplazar a la página actual cuando aparece la vista
+                        scrollToCurrentPage(scrollProxy: scrollProxy)
+                    }
+                    .onChange(of: currentPage) { _ in
+                        // Desplazar a la página actual cuando cambia
+                        scrollToCurrentPage(scrollProxy: scrollProxy)
+                    }
+                }
+            }
+        }
+        .frame(height: 100)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(useWhiteBackground ? Color.white.opacity(0.8) : Color.black.opacity(0.5))
+                .shadow(color: Color.black.opacity(0.2), radius: 5, x: 0, y: 2)
+        )
+    }
+    
+    private func scrollToCurrentPage(scrollProxy: ScrollViewProxy) {
+        withAnimation {
+            scrollProxy.scrollTo(currentPage, anchor: .center)
+        }
     }
 }
