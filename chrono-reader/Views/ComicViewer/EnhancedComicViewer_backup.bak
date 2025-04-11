@@ -54,6 +54,9 @@ class ComicViewerModel: ObservableObject {
     @Published var webtoonPages: [WebtoonPage] = []
     @Published var doublePages: [DoublePage] = []
     @Published var isolateFirstPage: Bool = true
+    // Nuevas configuraciones para Cuidado de Ojos (Eye Care)
+    @Published var useWarmLight: Bool = false
+    @Published var reduceWhites: Bool = false
     
     let book: CompleteBook
     
@@ -182,8 +185,6 @@ class ComicViewerModel: ObservableObject {
             return
         }
         
-        print("Reconstruyendo páginas dobles con opción de combinar portada: \(isolateFirstPage)")
-        
         // Trabajar con copias locales para evitar problemas de concurrencia
         let localPages = pages
         let localReadingMode = readingMode
@@ -201,10 +202,8 @@ class ComicViewerModel: ObservableObject {
             return image.size.width > image.size.height
         }
         
-        // Si la primera página debe estar aislada (ahora cuando isolateFirstPage es false)
-        // y hay suficientes páginas
-        if !localIsolateFirstPage && currentIndex < localPages.count {
-            print("Aislando la primera página (portada)")
+        // Si está activada la opción de aislar la primera página y hay suficientes páginas
+        if localIsolateFirstPage && currentIndex < localPages.count {
             let singlePage = localPages[currentIndex]
             result.append(DoublePage(
                 id: UUID(),
@@ -212,8 +211,6 @@ class ComicViewerModel: ObservableObject {
                 rightImage: nil
             ))
             currentIndex += 1
-        } else {
-            print("Combinando la primera página con otras")
         }
         
         // Procesar el resto de páginas
@@ -258,14 +255,14 @@ class ComicViewerModel: ObservableObject {
             
             // Combinar las dos páginas según la dirección de lectura
             if isRightToLeft {
-                // En manga (RTL), la página más avanzada va a la izquierda (es decir, la que tiene índice menor)
+                // En manga (RTL), la página "siguiente" va a la izquierda
                 result.append(DoublePage(
                     id: UUID(),
-                    leftImage: currentPage,
-                    rightImage: nextPage
+                    leftImage: nextPage,
+                    rightImage: currentPage
                 ))
             } else {
-                // En cómic (LTR), la página más avanzada va a la derecha
+                // En cómic (LTR), la página "actual" va a la izquierda
                 result.append(DoublePage(
                     id: UUID(),
                     leftImage: currentPage,
@@ -277,11 +274,7 @@ class ComicViewerModel: ObservableObject {
             currentIndex += 2
         }
         
-        print("Reconstrucción completada: \(result.count) páginas dobles generadas")
-        
         // Actualizar el modelo directamente en el hilo principal para inmediatez
-        // Nota: Este cambio puede afectar la visualización actual y requerir un desplazamiento manual
-        // a la página correcta después de la reconstrucción
         doublePages = result
     }
     
@@ -479,11 +472,14 @@ struct EnhancedComicViewer: View {
                     doublePaged: $model.doublePaged,
                     isolateFirstPage: $model.isolateFirstPage,
                     useWhiteBackground: $model.useWhiteBackground,
+                    useWarmLight: $model.useWarmLight,
+                    reduceWhites: $model.reduceWhites,
                     isPresented: $model.showSettings
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
+        .eyeCare(useWarmLight: model.useWarmLight, reduceWhites: model.reduceWhites)
         .statusBar(hidden: true)
         .navigationBarHidden(true)
         .edgesIgnoringSafeArea(.all)
@@ -998,14 +994,6 @@ class IVPagingController: UIViewController {
         setupCollectionView()
         setupBindings()
         setupGestures()
-        
-        // Observar notificaciones para cambios en isolateFirstPage
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleForceUpdateDoublePages(_:)),
-            name: Notification.Name("ForceUpdateDoublePages"),
-            object: nil
-        )
     }
     
     override func viewDidLayoutSubviews() {
@@ -1122,12 +1110,17 @@ class IVPagingController: UIViewController {
             
         // Observar cambios en la opción de aislar la primera página
         model.$isolateFirstPage
-            .sink { [weak self] newValue in
+            .sink { [weak self] _ in
                 guard let self = self else { return }
                 
-                // En lugar de hacer la actualización aquí, simplemente registrar el cambio
-                // La actualización real se hará a través de la notificación ForceUpdateDoublePages
-                print("Valor de isolateFirstPage cambiado a: \(newValue)")
+                // Solo reconstruir si estamos en modo doble página y no vertical
+                if self.model.doublePaged && !self.model.readingMode.isVertical {
+                    // Reconstruir las páginas dobles inmediatamente
+                    self.model.buildDoublePages()
+                    
+                    // Actualizar la vista de inmediato
+                    self.updateReadingMode()
+                }
             }
             .store(in: &cancellables)
 
@@ -1277,23 +1270,13 @@ class IVPagingController: UIViewController {
             return
         }
         
-        if model.readingMode.isInverted && model.doublePaged {
-            // En modo manga con páginas dobles, aplicar transformación para invertir la dirección del scroll
-            // Esto cambiará el comportamiento del desplazamiento sin afectar la visualización
-            collectionView.transform = CGAffineTransform(scaleX: -1, y: 1)
-        } else {
-            // En otros modos, no aplicar transformación
-            collectionView.transform = .identity
-        }
+        // Ya no aplicamos transformación en modo manga
+        // Solo cambiaremos la lógica de navegación en handleNavigationAction
+        collectionView.transform = .identity
     }
     
     private func scrollToPage(_ page: Int, animated: Bool = false) {
         guard page >= 0 && page < model.pages.count else { return }
-        
-        // Asegurarse primero de que la colección esté actualizada
-        if model.doublePaged && model.doublePages.isEmpty && !model.readingMode.isVertical {
-            model.buildDoublePages()
-        }
         
         if model.readingMode.isVertical {
             // En modo vertical, el índice en el CollectionView coincide con el índice real
@@ -1335,15 +1318,9 @@ class IVPagingController: UIViewController {
             }
             
             if found {
-                // Usar un retraso mínimo para asegurar que la colección esté lista
-                DispatchQueue.main.async {
-                    let indexPath = IndexPath(item: doublePageIndex, section: 0)
-                    // Desplazamiento directo para mayor fluidez
-                    self.collectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: animated)
-                    
-                    // Forzar un redibujado inmediato
-                    self.collectionView.layoutIfNeeded()
-                }
+                let indexPath = IndexPath(item: doublePageIndex, section: 0)
+                // Desplazamiento directo para mayor fluidez
+                collectionView.scrollToItem(at: indexPath, at: .centeredHorizontally, animated: animated)
             }
         } else {
             // Modo de página única
@@ -1374,43 +1351,6 @@ class IVPagingController: UIViewController {
             print("Con posición vertical: \(offset * 100)%")
         }
     }
-    
-    @objc private func handleForceUpdateDoublePages(_ notification: Notification) {
-        // Forzar la reconstrucción de páginas dobles y la actualización de la vista
-        guard model.doublePaged && !model.readingMode.isVertical else { return }
-        
-        // Guardar la página actual
-        let currentPage = model.currentPage
-        
-        print("Forzando actualización de páginas dobles")
-        
-        // Limpiar páginas dobles existentes para forzar reconstrucción
-        model.doublePages = []
-        
-        // Forzar una pausa breve para asegurar que los cambios de estado se apliquen
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
-            // Reconstruir páginas dobles
-            self.model.buildDoublePages()
-            
-            // Recargar los datos inmediatamente
-            self.collectionView.reloadData()
-            
-            // Asegurar que la vista se desplace a la página correcta
-            self.scrollToPage(currentPage, animated: false)
-            
-            // Forzar layout inmediato
-            self.collectionView.layoutIfNeeded()
-            
-            // Agregar una segunda actualización con un pequeño retraso
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                self.collectionView.reloadData()
-                self.scrollToPage(currentPage, animated: false)
-                self.collectionView.layoutIfNeeded()
-            }
-        }
-    }
 }
 
 // MARK: - Extensiones del Controlador de Paginación
@@ -1427,23 +1367,20 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
-        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "PageCell", for: indexPath) as? ComicPageCell else {
-            return UICollectionViewCell()
-        }
-        
-        // Aplicar la transformación inversa a la celda si estamos en modo manga con páginas dobles
-        if model.readingMode.isInverted && model.doublePaged {
-            cell.contentView.transform = CGAffineTransform(scaleX: -1, y: 1)
-        } else {
-            cell.contentView.transform = .identity
-        }
+        let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "PageCell", for: indexPath) as! ComicPageCell
         
         if model.readingMode.isVertical {
             // Modo vertical (webtoon) - configuración normal
             let pageIndex = indexPath.item
             if pageIndex < model.pages.count {
                 let image = model.pages[pageIndex]
-                cell.configureSinglePage(image: image, readingMode: model.readingMode, useWhiteBackground: model.useWhiteBackground)
+                cell.configureSinglePage(
+                    image: image, 
+                    readingMode: model.readingMode, 
+                    useWhiteBackground: model.useWhiteBackground,
+                    useWarmLight: model.useWarmLight,
+                    reduceWhites: model.reduceWhites
+                )
                 tapGestureRecognizer.require(toFail: cell.scrollView.doubleTapGesture)
             }
         } else if model.doublePaged {
@@ -1458,14 +1395,18 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
                         leftImage: doublePage.leftImage,
                         rightImage: rightImage,
                         readingMode: model.readingMode,
-                        useWhiteBackground: model.useWhiteBackground
+                        useWhiteBackground: model.useWhiteBackground,
+                        useWarmLight: model.useWarmLight,
+                        reduceWhites: model.reduceWhites
                     )
                 } else {
                     // Si solo hay una imagen (página ancha o página única), mostrar una sola
                     cell.configureSinglePage(
                         image: doublePage.leftImage,
                         readingMode: model.readingMode,
-                        useWhiteBackground: model.useWhiteBackground
+                        useWhiteBackground: model.useWhiteBackground,
+                        useWarmLight: model.useWarmLight,
+                        reduceWhites: model.reduceWhites
                     )
                 }
                 
@@ -1473,7 +1414,7 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
             }
         } else {
             // Modo de página única
-    
+            // Determinar el índice real de la página según el modo de lectura
             let pageIndex: Int
             if model.readingMode.isInverted && !model.readingMode.isVertical {
                 // En modo manga invertimos el orden de las páginas
@@ -1484,7 +1425,13 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
             
             if pageIndex < model.pages.count {
                 let image = model.pages[pageIndex]
-                cell.configureSinglePage(image: image, readingMode: model.readingMode, useWhiteBackground: model.useWhiteBackground)
+                cell.configureSinglePage(
+                    image: image, 
+                    readingMode: model.readingMode, 
+                    useWhiteBackground: model.useWhiteBackground,
+                    useWarmLight: model.useWarmLight,
+                    reduceWhites: model.reduceWhites
+                )
                 
                 // Actualizar los gestos para esta celda
                 tapGestureRecognizer.require(toFail: cell.scrollView.doubleTapGesture)
@@ -1529,7 +1476,7 @@ extension IVPagingController: UICollectionViewDataSource, UICollectionViewDelega
                 }
             }
         } else {
-            // Cálculo para desplazamiento horizontal en modo página única
+            // Cálculo para desplazamiento horizontal en modo página única (sin cambios)
             let visualIndex = Int(floor(scrollView.contentOffset.x / pageWidth))
             
             // Convertir el índice visual al índice real de página según el modo de lectura
@@ -1603,6 +1550,19 @@ class ComicPageCell: UICollectionViewCell {
         }
     }
     
+    // Configuraciones para Eye Care
+    var useWarmLight: Bool = false {
+        didSet {
+            applyEyeCareEffects()
+        }
+    }
+    
+    var reduceWhites: Bool = false {
+        didSet {
+            applyEyeCareEffects()
+        }
+    }
+    
     // Vistas adicionales para el modo de doble página
     private var leftImageView: UIImageView?
     private var rightImageView: UIImageView?
@@ -1643,7 +1603,60 @@ class ComicPageCell: UICollectionViewCell {
         scrollView.frame = contentView.bounds
     }
     
-    func configure(with image: UIImage, readingMode: ReadingMode, useWhiteBackground: Bool = false) {
+    // Método para aplicar los efectos de Eye Care a todas las imágenes
+    private func applyEyeCareEffects() {
+        // Aplicar a las diferentes vistas de imágenes según el modo
+        if let leftView = leftImageView, let rightView = rightImageView {
+            // Modo de doble página
+            applyFiltersToImageView(leftView)
+            applyFiltersToImageView(rightView)
+        } else if let singleView = singleImageView {
+            // Modo de página única
+            applyFiltersToImageView(singleView)
+        } else if let imageView = scrollView.imageView {
+            // Vista directa en el scrollview
+            applyFiltersToImageView(imageView)
+        }
+    }
+    
+    // Aplicar los filtros a una vista de imagen individual
+    private func applyFiltersToImageView(_ imageView: UIImageView) {
+        // Aplicar filtro de luz cálida
+        if useWarmLight {
+            var warmFilter = CIFilter(name: "CIColorMatrix")
+            warmFilter?.setValue(CIVector(x: 1.1, y: 0, z: 0, w: 0), forKey: "inputRVector")
+            warmFilter?.setValue(CIVector(x: 0, y: 1.0, z: 0, w: 0), forKey: "inputGVector")
+            warmFilter?.setValue(CIVector(x: 0, y: 0, z: 0.8, w: 0), forKey: "inputBVector")
+            warmFilter?.setValue(CIVector(x: 0, y: 0, z: 0, w: 1.0), forKey: "inputAVector")
+            
+            let context = CIContext(options: nil)
+            if let filter = warmFilter, let inputImage = imageView.image,
+               let ciImage = CIImage(image: inputImage),
+               let outputImage = filter.outputImage?.cropped(to: ciImage.extent),
+               let cgImage = context.createCGImage(outputImage, from: outputImage.extent) {
+                imageView.image = UIImage(cgImage: cgImage)
+            }
+        }
+        
+        // Aplicar filtro para reducir blancos
+        if reduceWhites {
+            var whiteFilter = CIFilter(name: "CIColorMatrix")
+            whiteFilter?.setValue(CIVector(x: 0.9, y: 0, z: 0, w: 0), forKey: "inputRVector")
+            whiteFilter?.setValue(CIVector(x: 0, y: 0.9, z: 0, w: 0), forKey: "inputGVector")
+            whiteFilter?.setValue(CIVector(x: 0, y: 0, z: 0.9, w: 0), forKey: "inputBVector")
+            whiteFilter?.setValue(CIVector(x: 0, y: 0, z: 0, w: 1.0), forKey: "inputAVector")
+            
+            let context = CIContext(options: nil)
+            if let filter = whiteFilter, let inputImage = imageView.image,
+               let ciImage = CIImage(image: inputImage),
+               let outputImage = filter.outputImage?.cropped(to: ciImage.extent),
+               let cgImage = context.createCGImage(outputImage, from: outputImage.extent) {
+                imageView.image = UIImage(cgImage: cgImage)
+            }
+        }
+    }
+    
+    func configure(with image: UIImage, readingMode: ReadingMode, useWhiteBackground: Bool = false, useWarmLight: Bool = false, reduceWhites: Bool = false) {
         // Ya no aplicamos transformación para manga
         scrollView.transform = .identity
         
@@ -1657,11 +1670,13 @@ class ComicPageCell: UICollectionViewCell {
         scrollView.allowVerticalScroll = readingMode == .VERTICAL
         scrollView.updateScrollBehavior()
         
-        // Configurar el fondo
+        // Configurar el fondo y opciones de Eye Care
         self.useWhiteBackground = useWhiteBackground
+        self.useWarmLight = useWarmLight
+        self.reduceWhites = reduceWhites
     }
     
-    func configureDoublePage(leftImage: UIImage, rightImage: UIImage, readingMode: ReadingMode, useWhiteBackground: Bool = false) {
+    func configureDoublePage(leftImage: UIImage, rightImage: UIImage, readingMode: ReadingMode, useWhiteBackground: Bool = false, useWarmLight: Bool = false, reduceWhites: Bool = false) {
         // Limpiar cualquier configuración anterior
         cleanupDoublePageViews()
         scrollView.reset()
@@ -1679,19 +1694,8 @@ class ComicPageCell: UICollectionViewCell {
         // Configurar las vistas de imagen
         leftView.contentMode = .scaleAspectFit
         rightView.contentMode = .scaleAspectFit
-        
-        // Si la celda tiene una transformación espejada, invertir el orden
-        // La transformación se aplica cuando estamos en modo manga con páginas dobles
-        if contentView.transform == CGAffineTransform(scaleX: -1, y: 1) {
-            // En modo manga con transformación, invertir el orden de las imágenes
-            // para compensar el efecto espejo
-            leftView.image = rightImage
-            rightView.image = leftImage
-        } else {
-            // En modo normal, mantener el orden original
-            leftView.image = leftImage
-            rightView.image = rightImage
-        }
+        leftView.image = leftImage
+        rightView.image = rightImage
         
         // Agregar las vistas al contenedor
         container.addSubview(leftView)
@@ -1722,8 +1726,10 @@ class ComicPageCell: UICollectionViewCell {
         scrollView.updateScrollBehavior()
         scrollView.setupZoomForView(container)
         
-        // Configurar el fondo
+        // Configurar el fondo y opciones de Eye Care
         self.useWhiteBackground = useWhiteBackground
+        self.useWarmLight = useWarmLight
+        self.reduceWhites = reduceWhites
     }
     
     private func cleanupDoublePageViews() {
@@ -1759,7 +1765,7 @@ class ComicPageCell: UICollectionViewCell {
         }
     }
     
-    func configureSinglePage(image: UIImage, readingMode: ReadingMode, useWhiteBackground: Bool = false) {
+    func configureSinglePage(image: UIImage, readingMode: ReadingMode, useWhiteBackground: Bool = false, useWarmLight: Bool = false, reduceWhites: Bool = false) {
         // Limpiar cualquier configuración anterior para evitar problemas con constraints
         cleanupDoublePageViews()
         scrollView.reset()
@@ -1774,15 +1780,17 @@ class ComicPageCell: UICollectionViewCell {
         scrollView.updateScrollBehavior()
         scrollView.setupZoomForView(imageView)
         
-        // Configurar el fondo
+        // Configurar el fondo y opciones de Eye Care
         self.useWhiteBackground = useWhiteBackground
+        self.useWarmLight = useWarmLight
+        self.reduceWhites = reduceWhites
     }
 }
 
 // MARK: - ScrollView con Zoom
 
 class ZoomingScrollView: UIScrollView {
-    private var imageView: UIImageView!
+    var imageView: UIImageView!
     var doubleTapGesture: UITapGestureRecognizer!
     private var wrapper: UIView!
     private var postImageSetConstraints: [NSLayoutConstraint] = []
@@ -2227,6 +2235,8 @@ struct ComicSettingsView: View {
     @Binding var doublePaged: Bool
     @Binding var isolateFirstPage: Bool
     @Binding var useWhiteBackground: Bool
+    @Binding var useWarmLight: Bool
+    @Binding var reduceWhites: Bool
     @Binding var isPresented: Bool
     @Environment(\.colorScheme) var colorScheme
     
@@ -2308,6 +2318,39 @@ struct ComicSettingsView: View {
                             .padding(.horizontal, 24)
                         }
                         
+                        // Sección de Eye Care (Cuidado de Ojos)
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("CUIDADO DE OJOS")
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 24)
+                            
+                            VStack(spacing: 16) {
+                                // Opción de luz cálida
+                                SettingsToggleRow(
+                                    title: "Luz cálida",
+                                    subtitle: "Reduce la luz azul para disminuir la fatiga visual",
+                                    iconName: "sun.max.fill",
+                                    iconColor: .orange,
+                                    isEnabled: true,
+                                    isActive: useWarmLight,
+                                    binding: $useWarmLight
+                                )
+                                
+                                // Opción de reducir blancos
+                                SettingsToggleRow(
+                                    title: "Reducir blancos",
+                                    subtitle: "Disminuye el brillo de las áreas blancas",
+                                    iconName: "lightbulb.fill",
+                                    isEnabled: true,
+                                    isActive: reduceWhites,
+                                    binding: $reduceWhites
+                                )
+                            }
+                            .padding(.horizontal, 24)
+                        }
+                        
                         // Otras opciones
                         VStack(alignment: .leading, spacing: 12) {
                             Text("OPCIONES")
@@ -2330,30 +2373,13 @@ struct ComicSettingsView: View {
                                     
                                     // Opción de aislar primera página (mostrarla sola)
                                     if doublePaged {
-                                        // Volver a usar SettingsToggleRow con un binding personalizado
                                         SettingsToggleRow(
-                                            title: "Combinar portada",
-                                            subtitle: "Mostrar la primera página junto con otra (cuando está activado) o por separado (cuando está desactivado)",
+                                            title: "Aislar portada",
+                                            subtitle: "Mostrar la primera página por separado",
                                             iconName: "doc.viewfinder",
                                             isEnabled: doublePaged,
                                             isActive: isolateFirstPage,
-                                            binding: Binding(
-                                                get: { isolateFirstPage },
-                                                set: { newValue in
-                                                    // Cambiar el valor directamente
-                                                    isolateFirstPage = newValue
-                                                    
-                                                    // Forzar actualización inmediata de la UI
-                                                    DispatchQueue.main.async {
-                                                        // Notificar el cambio para actualizar la vista inmediatamente
-                                                        NotificationCenter.default.post(
-                                                            name: Notification.Name("ForceUpdateDoublePages"),
-                                                            object: nil,
-                                                            userInfo: ["isolateFirstPage": newValue]
-                                                        )
-                                                    }
-                                                }
-                                            )
+                                            binding: $isolateFirstPage
                                         )
                                         .padding(.leading, 24)
                                     }
@@ -2540,7 +2566,7 @@ struct SettingsToggleRow: View {
             
             Spacer()
             
-            // Control Toggle simplificado
+            // Control Toggle
             Toggle("", isOn: $binding)
                 .toggleStyle(SwitchToggleStyle(tint: .accentColor))
                 .labelsHidden()
@@ -2568,6 +2594,149 @@ extension View {
         }
     }
 } 
+
+// MARK: - Modificador para Cuidado de Ojos (Eye Care)
+extension View {
+    func eyeCare(useWarmLight: Bool, reduceWhites: Bool) -> some View {
+        self.modifier(EyeCareModifier(useWarmLight: useWarmLight, reduceWhites: reduceWhites))
+    }
+}
+
+// Modificador personalizado para aplicar los efectos de Eye Care
+struct EyeCareModifier: ViewModifier {
+    let useWarmLight: Bool
+    let reduceWhites: Bool
+    
+    func body(content: Content) -> some View {
+        if useWarmLight || reduceWhites {
+            content
+                .overlay(
+                    Rectangle()
+                        .fill(getFilterColor())
+                        .blendMode(.multiply)
+                )
+                .compositingGroup()
+        } else {
+            content
+        }
+    }
+    
+    private func getFilterColor() -> Color {
+        var red: Double = 1.0
+        var green: Double = 1.0
+        var blue: Double = 1.0
+        
+        if useWarmLight {
+            // Aplicar un tinte cálido reduciendo azules y aumentando rojos ligeramente
+            red = 1.1
+            blue = 0.8
+        }
+        
+        if reduceWhites {
+            // Reducir intensidad de los blancos
+            red *= 0.9
+            green *= 0.9
+            blue *= 0.9
+        }
+        
+        // Asegurar que los valores están dentro del rango correcto
+        red = min(max(red, 0), 1)
+        green = min(max(green, 0), 1)
+        blue = min(max(blue, 0), 1)
+        
+        return Color(red: red, green: green, blue: blue)
+    }
+}
+
+// Estructura para aplicar efectos de color
+struct ColorEffect: ViewModifier {
+    let colorMatrix: ColorMatrix
+    
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                Rectangle()
+                    .fill(Color.white.opacity(0.0001)) // Casi transparente para capturar la vista
+                    .blendMode(colorMatrix == .identity ? .normal : .multiply)
+            )
+            .compositingGroup() // Asegurar que los efectos se apliquen correctamente
+            .colorMultiply(colorMatrix.applyAsColor())
+    }
+}
+
+// Matriz de color para transformaciones
+struct ColorMatrix {
+    let r: [CGFloat]
+    let g: [CGFloat]
+    let b: [CGFloat]
+    let a: [CGFloat]
+    
+    static let identity = ColorMatrix(
+        r: [1, 0, 0, 0],
+        g: [0, 1, 0, 0],
+        b: [0, 0, 1, 0],
+        a: [0, 0, 0, 1]
+    )
+    
+    // Multiplicar matrices para combinar efectos
+    func multiply(_ other: ColorMatrix) -> ColorMatrix {
+        // Si ambas son identidad, devolver identidad
+        if self == .identity && other == .identity {
+            return .identity
+        }
+        
+        // Si una es identidad, devolver la otra
+        if self == .identity {
+            return other
+        }
+        if other == .identity {
+            return self
+        }
+        
+        // Para simplificar, aplicamos una aproximación de la multiplicación
+        // usando promedios ponderados para mantener los efectos visuales
+        return ColorMatrix(
+            r: [
+                (self.r[0] + other.r[0]) / 2,
+                (self.r[1] + other.r[1]) / 2,
+                (self.r[2] + other.r[2]) / 2,
+                (self.r[3] + other.r[3]) / 2
+            ],
+            g: [
+                (self.g[0] + other.g[0]) / 2,
+                (self.g[1] + other.g[1]) / 2,
+                (self.g[2] + other.g[2]) / 2,
+                (self.g[3] + other.g[3]) / 2
+            ],
+            b: [
+                (self.b[0] + other.b[0]) / 2,
+                (self.b[1] + other.b[1]) / 2,
+                (self.b[2] + other.b[2]) / 2,
+                (self.b[3] + other.b[3]) / 2
+            ],
+            a: [
+                (self.a[0] + other.a[0]) / 2,
+                (self.a[1] + other.a[1]) / 2,
+                (self.a[2] + other.a[2]) / 2,
+                (self.a[3] + other.a[3]) / 2
+            ]
+        )
+    }
+    
+    // Aplicar la matriz como un color
+    func applyAsColor() -> Color {
+        let rValue = min(max(r[0], 0), 1)
+        let gValue = min(max(g[1], 0), 1)
+        let bValue = min(max(b[2], 0), 1)
+        
+        return Color(red: Double(rValue), green: Double(gValue), blue: Double(bValue))
+    }
+    
+    // Implementar Equatable para comparaciones
+    static func == (lhs: ColorMatrix, rhs: ColorMatrix) -> Bool {
+        return lhs.r == rhs.r && lhs.g == rhs.g && lhs.b == rhs.b && lhs.a == rhs.a
+    }
+}
 
 // MARK: - Implementación de prefetching para mejorar el rendimiento
 extension IVPagingController: UICollectionViewDataSourcePrefetching {

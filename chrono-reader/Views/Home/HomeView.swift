@@ -653,26 +653,45 @@ class HomeViewModel: ObservableObject {
     }
     
     func loadBooks() {
-        if let storedBooksData = storedBooksData {
-            do {
-                let decoded = try JSONDecoder().decode([CompleteBook].self, from: storedBooksData)
-                books = decoded
-                print("Libros cargados correctamente: \(books.count) libros")
-                
-                // Imprimir información de progreso para depuración
-                for book in books where book.book.progress > 0 {
-                    print("Libro cargado: \(book.book.title) - Progreso: \(book.book.progress * 100)%")
+        // Indicar que estamos cargando
+        isLoading = true
+        
+        // Realizar la carga en un hilo en segundo plano
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
+            if let storedBooksData = self.storedBooksData {
+                do {
+                    let decoded = try JSONDecoder().decode([CompleteBook].self, from: storedBooksData)
+                    
+                    // Actualizar la UI en el hilo principal
+                    DispatchQueue.main.async {
+                        self.books = decoded
+                        print("Libros cargados correctamente: \(self.books.count) libros")
+                        
+                        // Actualizar inmediatamente los libros filtrados
+                        self.updateFilteredBooks()
+                        
+                        // Finalizar el estado de carga
+                        self.isLoading = false
+                        
+                        // Verificar y reparar las rutas en segundo plano después de mostrar la UI
+                        self.performPathRepairInBackground()
+                    }
+                } catch {
+                    print("Error al decodificar los libros guardados: \(error)")
+                    DispatchQueue.main.async {
+                        self.loadSampleBooks()
+                        self.isLoading = false
+                    }
                 }
-                
-                // Verificar y reparar las rutas de los archivos
-                verifyAndRepairBookPaths()
-            } catch {
-                print("Error al decodificar los libros guardados: \(error)")
-                loadSampleBooks()
+            } else {
+                print("No se encontraron libros guardados")
+                DispatchQueue.main.async {
+                    self.loadSampleBooks()
+                    self.isLoading = false
+                }
             }
-        } else {
-            print("No se encontraron libros guardados")
-            loadSampleBooks()
         }
     }
     
@@ -1185,11 +1204,150 @@ class HomeViewModel: ObservableObject {
         // If no match found, return the title as the name and a high number to sort it at the end
         return SeriesInfo(name: title, number: Int.max)
     }
+
+    // Nuevo método para realizar la verificación de rutas en segundo plano
+    func performPathRepairInBackground() {
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+            
+            print("Verificando y reparando rutas de archivos en segundo plano...")
+            let fileManager = FileManager.default
+            var booksToUpdate: [(Int, CompleteBook)] = []
+            
+            // Verificación y reparación sin bloquear la UI
+            for (index, book) in self.books.enumerated() {
+                // Verificar si el archivo local existe
+                if let localURL = book.metadata.localURL, fileManager.fileExists(atPath: localURL.path) {
+                    var needsUpdate = false
+                    var updatedBook = book
+                    
+                    // Limpiar el título si contiene un prefijo UUID (sin bloquear UI)
+                    let currentTitle = book.book.title
+                    if currentTitle.range(of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-", options: .regularExpression) != nil {
+                        let cleanTitle = currentTitle.replacingOccurrences(
+                            of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-",
+                            with: "",
+                            options: .regularExpression
+                        )
+                        
+                        print("Limpiando título: \(currentTitle) -> \(cleanTitle)")
+                        
+                        updatedBook = CompleteBook(
+                            id: book.id,
+                            title: cleanTitle,
+                            author: book.book.author,
+                            coverImage: book.book.coverImage,
+                            type: book.book.type,
+                            progress: book.book.progress,
+                            localURL: book.metadata.localURL,
+                            cover: book.getCoverImage(),
+                            lastReadDate: book.book.lastReadDate
+                        )
+                        needsUpdate = true
+                    }
+                    
+                    // Solo verificar las portadas si no existían previamente o si eran necesarias
+                    if let coverPath = book.metadata.coverPath, !fileManager.fileExists(atPath: coverPath) {
+                        if (book.book.type == .cbz || book.book.type == .cbr || book.book.type == .epub) {
+                            if let coverImage = self.extractCoverFromFile(url: localURL, type: book.book.type) {
+                                updatedBook = CompleteBook(
+                                    id: book.id,
+                                    title: updatedBook.book.title,
+                                    author: book.book.author,
+                                    coverImage: book.book.coverImage,
+                                    type: book.book.type,
+                                    progress: book.book.progress,
+                                    localURL: book.metadata.localURL,
+                                    cover: coverImage,
+                                    lastReadDate: book.book.lastReadDate
+                                )
+                                needsUpdate = true
+                            }
+                        }
+                    }
+                    
+                    if needsUpdate {
+                        booksToUpdate.append((index, updatedBook))
+                    }
+                }
+            }
+            
+            // Aplicar actualizaciones en el hilo principal
+            if !booksToUpdate.isEmpty {
+                DispatchQueue.main.async {
+                    var updatedBooks = self.books
+                    
+                    for (index, book) in booksToUpdate {
+                        if index < updatedBooks.count {
+                            updatedBooks[index] = book
+                        }
+                    }
+                    
+                    self.books = updatedBooks
+                    self.saveBooks()
+                    
+                    // Actualizar los filtros después de los cambios
+                    self.updateFilteredBooks()
+                }
+            }
+        }
+    }
+    
+    // Método para realizar una actualización ligera sin bloquear la UI
+    func performLightRefresh() {
+        // Verificar si hay nuevos libros sin iniciar carga pesada
+        print("Realizando actualización ligera")
+        
+        // No recargar los libros completos, solo actualizar los filtros
+        DispatchQueue.main.async {
+            // Cancelar cualquier procesamiento en curso
+            self.isProcessingFiles = false
+            self.isImporting = false
+            
+            // Actualizar solo si hay cambios
+            self.updateFilteredBooks()
+            
+            // Actualizar el header
+            self.refreshHeader()
+            
+            // Notificar cualquier cambio
+            self.objectWillChange.send()
+        }
+    }
+    
+    // Restauración segura - Para usar cuando la app vuelve de segundo plano
+    func safeRestoreFromBackground() {
+        print("🔄 Restaurando HomeViewModel desde segundo plano")
+        
+        // Limpiar estados de carga
+        isLoading = false
+        isImporting = false
+        isProcessingFiles = false
+        isSearching = false
+        
+        // Actualizar la UI
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Solo actualizar los filtros, sin cargar datos pesados
+            self.updateFilteredBooks()
+            
+            // Actualizar el header
+            self.headerRefreshTrigger = UUID()
+            
+            // Notificar cambios
+            self.objectWillChange.send()
+        }
+    }
 }
 
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     @State private var scrollOffset: CGFloat = 0
+    @State private var isInitialLoad = true
+    @State private var showSkeleton = true // Estado para controlar la visualización del esqueleto
+    @State private var isRestoringFromBackground = false // Nuevo estado para detectar restauración desde fondo
+    @State private var uiBlockedTimer: Timer? = nil // Timer para detectar y recuperar bloqueos de UI
     
     var body: some View {
         ZStack {
@@ -1244,6 +1402,86 @@ struct HomeView: View {
             }
         }
         .background(Color(UIColor.systemBackground))
+        .onAppear {
+            // Iniciar el timer de seguridad para detectar bloqueos
+            scheduleUIBlockRecoveryTimer()
+        }
+        .onDisappear {
+            // Cancelar el timer cuando la vista desaparece
+            uiBlockedTimer?.invalidate()
+            uiBlockedTimer = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("AppWillEnterForeground"))) { _ in
+            // Marcar que estamos restaurando desde segundo plano
+            isRestoringFromBackground = true
+            
+            // Asegurarse de que no estemos mostrando el esqueleto
+            showSkeleton = false
+            
+            // Cancelar cualquier operación potencialmente bloqueante
+            LoadingManager.shared.forceStopAllLoading()
+            
+            // Restaurar de forma segura
+            viewModel.safeRestoreFromBackground()
+            
+            // Reiniciar el timer de seguridad
+            scheduleUIBlockRecoveryTimer()
+            
+            // Liberar cualquier bloqueo de UI y refrescar datos si es necesario
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                // Forzar actualización de la UI
+                withAnimation {
+                    viewModel.refreshHeader()
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("AppBecameActive"))) { _ in
+            // Solo realizar operaciones adicionales si estamos volviendo desde segundo plano
+            if isRestoringFromBackground {
+                // Recargar datos en segundo plano sin bloquear la UI
+                DispatchQueue.global(qos: .userInitiated).async {
+                    viewModel.performLightRefresh()
+                    
+                    // Restablecer el estado
+                    DispatchQueue.main.async {
+                        isRestoringFromBackground = false
+                    }
+                }
+            }
+        }
+    }
+    
+    // Función para programar el timer de seguridad
+    private func scheduleUIBlockRecoveryTimer() {
+        // Cancelar cualquier timer anterior
+        uiBlockedTimer?.invalidate()
+        
+        // Crear un nuevo timer que verificará si la UI está bloqueada cada 3 segundos
+        uiBlockedTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
+            // Verificar si hay indicadores de carga activos por más tiempo del esperado
+            if LoadingManager.shared.isLoading {
+                print("⚠️ Posible bloqueo de UI detectado - realizando recuperación automática")
+                
+                // Forzar la liberación de todos los bloqueos de carga
+                LoadingManager.shared.forceStopAllLoading()
+                
+                // Ocultar esqueleto si estuviera visible
+                if self.showSkeleton {
+                    DispatchQueue.main.async {
+                        withAnimation {
+                            self.showSkeleton = false
+                        }
+                    }
+                }
+                
+                // Forzar actualización de la UI
+                DispatchQueue.main.async {
+                    withAnimation {
+                        self.viewModel.refreshHeader()
+                    }
+                }
+            }
+        }
     }
     
     // Vista principal
@@ -1251,103 +1489,363 @@ struct HomeView: View {
         NavigationView {
             ZStack(alignment: .top) {
                 // Content
-                ScrollView {
-                    // Spacer transparente para empujar el contenido debajo del header fijo
-                    Color.clear.frame(height: viewModel.isHeaderCompact ? 40 : (viewModel.isSearching ? 130 : 185))
-
-                    // Contenido principal
-                    VStack(alignment: .leading, spacing: 0) { // Eliminar por completo el espaciado entre secciones
-                        // Sección de "Continuar leyendo"
-                        continueLeerSection
-                        
-                        // Sección de "Tus colecciones"
-                        coleccionesSection
-                            .padding(.bottom, 0) // Asegurar que no haya padding inferior
-                            .padding(.top, 0) // Asegurar que no haya padding superior
-                        
-                        // Sección de "Todos los libros"
-                        todosLibrosSection
-                            .padding(.top, 0) // Asegurar que no haya padding superior
-                            .padding(.bottom, 0) // Asegurar que no haya padding inferior
-
-                        Spacer(minLength: 120) // Aumentado para dar más espacio al final
-                    }
-                }
-                .coordinateSpace(name: "scroll")
-                .fileImporter(
-                    isPresented: $viewModel.isImporting,
-                    allowedContentTypes: [UTType.pdf, UTType.epub, UTType.init(filenameExtension: "cbr")!, UTType.init(filenameExtension: "cbz")!],
-                    allowsMultipleSelection: true
-                ) { result in
-                    // Activar el indicador de carga antes de comenzar el proceso de selección
-                    viewModel.isProcessingFiles = true
-                    LoadingManager.shared.startLoading()
-                    
-                    switch result {
-                    case .success(let urls):
-                        // Procesar todas las URLs seleccionadas
-                        DispatchQueue.global(qos: .userInitiated).async {
-                            for (index, url) in urls.enumerated() {
-                                print("🔄 Procesando archivo \(index+1) de \(urls.count): \(url.lastPathComponent)")
-                                // Solicitar acceso de seguridad para cada archivo
-                                if url.startAccessingSecurityScopedResource() {
-                                    // Asegurarse de que se libere el acceso cuando terminemos
-                                    defer { url.stopAccessingSecurityScopedResource() }
-                                    
-                                    // Procesar el archivo en el hilo principal para mantener la coherencia
-                                    DispatchQueue.main.sync {
-                                        viewModel.processImportedFile(url: url)
-                                    }
-                                } else {
-                                    print("❌ No se pudo acceder al archivo de manera segura: \(url.path)")
-                                }
-                            }
-                            
-                            // Desactivar el indicador de carga cuando se completa todo el proceso
-                            DispatchQueue.main.async {
-                                print("✅ Importación completada: \(urls.count) archivos procesados")
-                                viewModel.isProcessingFiles = false
-                                LoadingManager.shared.stopLoading()
-                            }
-                        }
-                    case .failure(let error):
-                        print("❌ Error al importar archivos: \(error)")
-                        // Asegurarse de desactivar los indicadores de carga en caso de error
-                        DispatchQueue.main.async {
-                            viewModel.isProcessingFiles = false
-                            LoadingManager.shared.stopLoading()
-                        }
-                    }
+                if showSkeleton {
+                    skeletonView
+                } else {
+                    contentView
                 }
 
-                // Header fijo
+                // Header fijo - siempre visible incluso durante la carga de esqueleto
                 headerView
                     .zIndex(1000) // Asegurar que siempre está encima
             }
             .animation(.default, value: viewModel.isHeaderCompact)
             .animation(.default, value: viewModel.isSearching)
             .animation(.default, value: viewModel.selectedCategory)
+            .animation(.easeInOut(duration: 0.3), value: showSkeleton)
             .onAppear {
                 print("⭐️ Home view appeared")
-                // Forzar la recarga de libros
-                viewModel.loadBooks()
-                // Forzar la recarga de colecciones
-                viewModel.collectionsViewModel.loadCollections()
-                viewModel.collectionsViewModel.loadAvailableBooks()
+                
+                // Inicialización diferida
+                if isInitialLoad {
+                    // Cargar libros inmediatamente (ya optimizado para carga en segundo plano)
+                    viewModel.loadBooks()
+                    
+                    // Mostrar el esqueleto por un mínimo de tiempo (mejor UX)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        withAnimation {
+                            showSkeleton = false
+                        }
+                    }
+                    
+                    // Diferir la carga de colecciones para después de que se muestre la UI
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        viewModel.collectionsViewModel.loadCollections()
+                        viewModel.collectionsViewModel.loadAvailableBooks()
+                        
+                        // Asegurarnos de que el gridLayout refleja el valor almacenado
+                        viewModel.gridLayout = viewModel.storedGridLayout
+                        
+                        // Forzar actualización del encabezado en un momento posterior
+                        viewModel.refreshHeader()
+                    }
+                    
+                    isInitialLoad = false
+                } else {
+                    // Si no es la carga inicial, mostrar contenido inmediatamente
+                    showSkeleton = false
+                }
+                
                 // Asegurarnos de que la categoría es all
                 if viewModel.selectedCategory != .all {
                     viewModel.updateSelectedCategory(.all)
                 }
-                // Asegurarnos de que el gridLayout refleja el valor almacenado
-                viewModel.gridLayout = viewModel.storedGridLayout
-                // Forzar actualización de la vista y del encabezado
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    viewModel.refreshHeader()
-                    viewModel.objectWillChange.send()
-                }
             }
         }
         .navigationViewStyle(StackNavigationViewStyle()) // Usar StackNavigationViewStyle para evitar problemas de transición
+    }
+    
+    // Vista de contenido real
+    private var contentView: some View {
+        ScrollView {
+            // Spacer transparente para empujar el contenido debajo del header fijo
+            Color.clear.frame(height: viewModel.isHeaderCompact ? 40 : (viewModel.isSearching ? 130 : 185))
+
+            // Contenido principal
+            VStack(alignment: .leading, spacing: 0) { // Eliminar por completo el espaciado entre secciones
+                // Sección de "Continuar leyendo"
+                continueLeerSection
+                
+                // Sección de "Tus colecciones"
+                coleccionesSection
+                    .padding(.bottom, 0) // Asegurar que no haya padding inferior
+                    .padding(.top, 0) // Asegurar que no haya padding superior
+                
+                // Sección de "Todos los libros"
+                todosLibrosSection
+                    .padding(.top, 0) // Asegurar que no haya padding superior
+                    .padding(.bottom, 0) // Asegurar que no haya padding inferior
+
+                Spacer(minLength: 120) // Aumentado para dar más espacio al final
+            }
+        }
+        .coordinateSpace(name: "scroll")
+        .fileImporter(
+            isPresented: $viewModel.isImporting,
+            allowedContentTypes: [UTType.pdf, UTType.epub, UTType.init(filenameExtension: "cbr")!, UTType.init(filenameExtension: "cbz")!],
+            allowsMultipleSelection: true
+        ) { result in
+            // Activar el indicador de carga antes de comenzar el proceso de selección
+            viewModel.isProcessingFiles = true
+            LoadingManager.shared.startLoading()
+            
+            switch result {
+            case .success(let urls):
+                // Procesar todas las URLs seleccionadas
+                DispatchQueue.global(qos: .userInitiated).async {
+                    for (index, url) in urls.enumerated() {
+                        print("🔄 Procesando archivo \(index+1) de \(urls.count): \(url.lastPathComponent)")
+                        // Solicitar acceso de seguridad para cada archivo
+                        if url.startAccessingSecurityScopedResource() {
+                            // Asegurarse de que se libere el acceso cuando terminemos
+                            defer { url.stopAccessingSecurityScopedResource() }
+                            
+                            // Procesar el archivo en el hilo principal para mantener la coherencia
+                            DispatchQueue.main.sync {
+                                viewModel.processImportedFile(url: url)
+                            }
+                        } else {
+                            print("❌ No se pudo acceder al archivo de manera segura: \(url.path)")
+                        }
+                    }
+                    
+                    // Desactivar el indicador de carga cuando se completa todo el proceso
+                    DispatchQueue.main.async {
+                        print("✅ Importación completada: \(urls.count) archivos procesados")
+                        viewModel.isProcessingFiles = false
+                        LoadingManager.shared.stopLoading()
+                    }
+                }
+            case .failure(let error):
+                print("❌ Error al importar archivos: \(error)")
+                // Asegurarse de desactivar los indicadores de carga en caso de error
+                DispatchQueue.main.async {
+                    viewModel.isProcessingFiles = false
+                    LoadingManager.shared.stopLoading()
+                }
+            }
+        }
+    }
+    
+    // Vista de esqueleto de carga
+    private var skeletonView: some View {
+        ZStack {
+            // Esqueleto de contenido
+            ScrollView {
+                // Compensación para el header
+                Color.clear.frame(height: viewModel.isHeaderCompact ? 40 : 185)
+                
+                VStack(alignment: .leading, spacing: 16) {
+                    // Esqueleto para "Continuar leyendo"
+                    VStack(alignment: .leading) {
+                        // Título de sección
+                        SkeletonView()
+                            .frame(width: 180, height: 22)
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 12)
+                        
+                        // Fila de libros
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 20) {
+                                ForEach(0..<4, id: \.self) { _ in
+                                    VStack(spacing: 8) {
+                                        // Portada de libro
+                                        SkeletonView()
+                                            .frame(width: UIScreen.main.bounds.width / 2 - 30, height: 200)
+                                            .cornerRadius(10)
+                                        
+                                        // Título
+                                        SkeletonView()
+                                            .frame(width: UIScreen.main.bounds.width / 2 - 60, height: 16)
+                                            .cornerRadius(4)
+                                    }
+                                }
+                                .padding(.leading, 24)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 16)
+                    
+                    // Esqueleto para "Colecciones"
+                    VStack(alignment: .leading) {
+                        // Título de sección
+                        SkeletonView()
+                            .frame(width: 150, height: 22)
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 12)
+                        
+                        // Fila de colecciones
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 20) {
+                                ForEach(0..<3, id: \.self) { _ in
+                                    SkeletonView()
+                                        .frame(width: 300, height: 180)
+                                        .cornerRadius(16)
+                                }
+                                .padding(.leading, 24)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 16)
+                    
+                    // Esqueleto para "Todos los libros"
+                    VStack(alignment: .leading) {
+                        // Título de sección
+                        SkeletonView()
+                            .frame(width: 160, height: 22)
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 12)
+                        
+                        // Grid de libros
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16)], spacing: 20) {
+                            ForEach(0..<12, id: \.self) { _ in
+                                VStack(spacing: 8) {
+                                    // Portada de libro
+                                    SkeletonView()
+                                        .aspectRatio(2/3, contentMode: .fit)
+                                        .cornerRadius(10)
+                                    
+                                    // Título
+                                    SkeletonView()
+                                        .frame(height: 16)
+                                        .cornerRadius(4)
+                                    
+                                    // Autor
+                                    SkeletonView()
+                                        .frame(height: 14)
+                                        .cornerRadius(4)
+                                        .opacity(0.7)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                    }
+                    .padding(.vertical, 16)
+                    
+                    Spacer(minLength: 80)
+                }
+            }
+            .opacity(0.6) // Reducir levemente la opacidad para que destaque el indicador circular
+            
+            // Indicador de carga circular moderno en el centro
+            ModernLoadingIndicator()
+        }
+    }
+    
+    // Componente de esqueleto
+    struct SkeletonView: View {
+        @State private var isAnimating = false
+        
+        var body: some View {
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color(.systemGray5),
+                    Color(.systemGray6),
+                    Color(.systemGray5)
+                ]),
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .opacity(isAnimating ? 0.7 : 0.4)
+            .animation(
+                Animation
+                    .easeInOut(duration: 1.5)
+                    .repeatForever(autoreverses: true),
+                value: isAnimating
+            )
+            .onAppear {
+                isAnimating = true
+            }
+        }
+    }
+    
+    // Vista del encabezado
+    private var headerView: some View {
+        VStack(spacing: 0) {
+            // Espacio para la barra de estado
+            Color.clear
+                .frame(height: 50)
+            
+            // Título de la biblioteca
+            HStack {
+                Text("Biblioteca")
+                    .font(.system(size: 32, weight: .bold))
+                    .padding(.horizontal, 24)
+                    .padding(.top, 4)
+
+                Spacer()
+                
+                // Botón para compactar/expandir el encabezado
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        viewModel.isHeaderCompact.toggle()
+                        viewModel.storedIsHeaderCompact = viewModel.isHeaderCompact
+                        viewModel.refreshHeader()
+                    }
+                }) {
+                    Image(systemName: viewModel.isHeaderCompact ? "chevron.down" : "chevron.up")
+                        .font(.title2)
+                        .foregroundColor(.primary)
+                        .padding(.trailing, 8)
+                        .padding(.top, 4)
+                }
+
+                // Botón de importación
+                Button(action: {
+                    viewModel.isImporting = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.badge.plus")
+                            .font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.appTheme())
+                    .cornerRadius(8)
+                    .padding(.trailing, 24)
+                    .padding(.top, 4)
+                }
+            }
+            .padding(.bottom, viewModel.isHeaderCompact ? 6 : 10) // Ajuste para que coincida con Colecciones
+
+            // Barra de búsqueda y categorías (visibles solo cuando el encabezado no está compacto)
+            if !viewModel.isHeaderCompact {
+                // Barra de búsqueda
+                SearchBarView(text: $viewModel.searchText, isSearching: $viewModel.isSearching)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 6)
+                    .padding(.bottom, 8)
+                    .onChange(of: viewModel.isSearching) { _ in
+                        viewModel.refreshHeader()
+                    }
+
+                // Selector de categorías (oculto durante la búsqueda)
+                if !viewModel.isSearching {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(HomeViewModel.BookCategory.allCases) { category in
+                                CategoryButton(
+                                    category: category,
+                                    isSelected: viewModel.selectedCategory == category,
+                                    action: { 
+                                        withAnimation {
+                                            viewModel.updateSelectedCategory(category) 
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 4)
+                    }
+                }
+            }
+        }
+        .background(
+            Material.ultraThinMaterial
+        )
+        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(Color.gray.opacity(0.3))
+                .offset(y: 1),
+            alignment: .bottom
+        )
+        .ignoresSafeArea(edges: .top)
+        .id("headerView-\(viewModel.headerRefreshTrigger)")
+        .transition(.opacity)
     }
     
     // Sección "Continuar leyendo"
@@ -1674,105 +2172,6 @@ struct HomeView: View {
         formatter.countStyle = .file
         return formatter.string(fromByteCount: size)
     }
-    
-    // Vista del encabezado
-    private var headerView: some View {
-        VStack(spacing: 0) {
-            // Espacio para la barra de estado
-            Color.clear
-                .frame(height: 50)
-            
-            // Título de la biblioteca
-            HStack {
-                Text("Biblioteca")
-                    .font(.system(size: 32, weight: .bold))
-                    .padding(.horizontal, 24)
-                    .padding(.top, 4)
-
-                Spacer()
-                
-                // Botón para compactar/expandir el encabezado
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        viewModel.isHeaderCompact.toggle()
-                        viewModel.storedIsHeaderCompact = viewModel.isHeaderCompact
-                        viewModel.refreshHeader()
-                    }
-                }) {
-                    Image(systemName: viewModel.isHeaderCompact ? "chevron.down" : "chevron.up")
-                        .font(.title2)
-                        .foregroundColor(.primary)
-                        .padding(.trailing, 8)
-                        .padding(.top, 4)
-                }
-
-                // Botón de importación
-                Button(action: {
-                    viewModel.isImporting = true
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "doc.badge.plus")
-                            .font(.system(size: 14, weight: .semibold))
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.appTheme())
-                    .cornerRadius(8)
-                    .padding(.trailing, 24)
-                    .padding(.top, 4)
-                }
-            }
-            .padding(.bottom, viewModel.isHeaderCompact ? 6 : 10) // Ajuste para que coincida con Colecciones
-
-            // Barra de búsqueda y categorías (visibles solo cuando el encabezado no está compacto)
-            if !viewModel.isHeaderCompact {
-                // Barra de búsqueda
-                SearchBarView(text: $viewModel.searchText, isSearching: $viewModel.isSearching)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 6)
-                    .padding(.bottom, 8)
-                    .onChange(of: viewModel.isSearching) { _ in
-                        viewModel.refreshHeader()
-                    }
-
-                // Selector de categorías (oculto durante la búsqueda)
-                if !viewModel.isSearching {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(HomeViewModel.BookCategory.allCases) { category in
-                                CategoryButton(
-                                    category: category,
-                                    isSelected: viewModel.selectedCategory == category,
-                                    action: { 
-                                        withAnimation {
-                                            viewModel.updateSelectedCategory(category) 
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 4)
-                    }
-                }
-            }
-        }
-        .background(
-            Material.ultraThinMaterial
-        )
-        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
-        .overlay(
-            Rectangle()
-                .frame(height: 0.5)
-                .foregroundColor(Color.gray.opacity(0.3))
-                .offset(y: 1),
-            alignment: .bottom
-        )
-        .ignoresSafeArea(edges: .top)
-        .id("headerView-\(viewModel.headerRefreshTrigger)")
-        .transition(.opacity)
-    }
 }
 
 struct SearchBarView: View {
@@ -1927,18 +2326,59 @@ struct ScaleButtonStyle: ButtonStyle {
 // Administrador de carga - Para gestionar de forma centralizada el estado de carga
 class LoadingManager: ObservableObject {
     @Published var isLoading = false
+    @Published var shouldShowFullscreenLoading = false
     
     static let shared = LoadingManager()
     
+    private var loadingTimer: Timer?
+    private var lockCount = 0
+    
     func startLoading() {
+        // Cancelar cualquier timer existente
+        loadingTimer?.invalidate()
+        
         DispatchQueue.main.async {
+            // Incrementar el contador de bloqueo
+            self.lockCount += 1
             self.isLoading = true
+            
+            // Solo mostrar el indicador de pantalla completa si la carga toma más de 300ms
+            // Esto evita la experiencia de flash en cargas rápidas
+            self.loadingTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+                guard let self = self, self.isLoading else { return }
+                self.shouldShowFullscreenLoading = true
+            }
         }
     }
     
     func stopLoading() {
+        // Cancelar el timer
+        loadingTimer?.invalidate()
+        loadingTimer = nil
+        
         DispatchQueue.main.async {
+            // Decrementar el contador de bloqueo
+            self.lockCount = max(0, self.lockCount - 1)
+            
+            // Solo desactivar la carga si no hay más solicitudes pendientes
+            if self.lockCount == 0 {
+                self.isLoading = false
+                self.shouldShowFullscreenLoading = false
+            }
+        }
+    }
+    
+    // Método para forzar la detención de todas las cargas (usado para recuperación)
+    func forceStopAllLoading() {
+        // Cancelar el timer
+        loadingTimer?.invalidate()
+        loadingTimer = nil
+        
+        DispatchQueue.main.async {
+            // Reiniciar contador y estados
+            self.lockCount = 0
             self.isLoading = false
+            self.shouldShowFullscreenLoading = false
         }
     }
 }
@@ -2091,6 +2531,65 @@ struct CollectionCardView: View {
                 withAnimation {
                     isHovered = hovering
                 }
+            }
+        }
+    }
+}
+
+// Indicador de carga moderno para mostrar encima del esqueleto
+struct ModernLoadingIndicator: View {
+    @State private var isAnimating = false
+    @State private var rotation = 0.0
+    
+    var body: some View {
+        ZStack {
+            // Fondo con difuminado
+            Circle()
+                .fill(Color(.systemBackground).opacity(0.8))
+                .frame(width: 130, height: 130)
+                .shadow(color: Color.black.opacity(0.2), radius: 15, x: 0, y: 5)
+            
+            // Diseño simplificado con anillo único
+            ZStack {
+                // Círculo de fondo
+                Circle()
+                    .fill(Color(.systemBackground))
+                    .frame(width: 110, height: 110)
+                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
+                
+                // Anillo giratorio con gradiente
+                Circle()
+                    .trim(from: 0, to: 0.75)
+                    .stroke(
+                        LinearGradient(
+                            gradient: Gradient(colors: [
+                                Color.appTheme(),
+                                Color.appTheme().opacity(0.5)
+                            ]),
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ),
+                        style: StrokeStyle(lineWidth: 8, lineCap: .round)
+                    )
+                    .frame(width: 100, height: 100)
+                    .rotationEffect(.degrees(rotation))
+                
+                // Contenido central
+                VStack(spacing: 8) {
+                    Image(systemName: "book.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(Color.appTheme())
+                    
+                    Text("Cargando")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(Color.appTheme())
+                }
+            }
+        }
+        .onAppear {
+            // Animación contínua del anillo
+            withAnimation(Animation.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                rotation = 360
             }
         }
     }

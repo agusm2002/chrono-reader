@@ -87,6 +87,7 @@ struct EPUBViewerView: View {
             }
         }
         .navigationBarHidden(true)
+        .persistentSystemOverlaysSupressed(showControls: showControls)
         .gesture(
             DragGesture(minimumDistance: 20)
                 .onChanged { value in

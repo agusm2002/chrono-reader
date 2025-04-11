@@ -19,6 +19,27 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
     
+    // Añadir método para manejar cuando la app entra en segundo plano
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        print("Aplicación entró en segundo plano")
+        
+        // Notificar a los componentes que la app está entrando en segundo plano
+        NotificationCenter.default.post(name: NSNotification.Name("AppDidEnterBackground"), object: nil)
+    }
+    
+    // Añadir método para manejar cuando la app vuelve a primer plano
+    func applicationWillEnterForeground(_ application: UIApplication) {
+        print("Aplicación volverá a primer plano")
+        
+        // Notificar a los componentes que la app está volviendo a primer plano
+        NotificationCenter.default.post(name: NSNotification.Name("AppWillEnterForeground"), object: nil)
+        
+        // Liberar cualquier bloqueo potencial de LoadingManager
+        DispatchQueue.main.async {
+            LoadingManager.shared.forceStopAllLoading()
+        }
+    }
+    
     // Función para configurar la apariencia global de la aplicación
     private func configureGlobalAppearance() {
         // Observar los cambios en el color del tema
@@ -136,6 +157,9 @@ struct ChronoReaderApp: App {
     // Observar el estado de carga global
     @StateObject private var loadingManager = LoadingManager.shared
     
+    // Observadores de ciclo de vida
+    @Environment(\.scenePhase) private var scenePhase
+    
     // Estado para las animaciones
     @State private var isAnimating = false
     @State private var scaleAmount = 1.0
@@ -152,10 +176,10 @@ struct ChronoReaderApp: App {
                         // Configurar permisos de acceso a archivos
                         print("Configurando permisos de acceso a archivos")
                     }
-                    .disabled(loadingManager.isLoading) // Deshabilitar interacciones durante la carga
+                    .disabled(loadingManager.shouldShowFullscreenLoading) // Solo deshabilitar cuando se muestre el indicador
                 
-                // Overlay de carga simple y efectivo
-                if loadingManager.isLoading {
+                // Overlay de carga simple y efectivo - solo mostrar cuando shouldShowFullscreenLoading es true
+                if loadingManager.shouldShowFullscreenLoading {
                     ZStack {
                         // Fondo oscuro semi-transparente que cubre toda la pantalla
                         Rectangle()
@@ -241,7 +265,7 @@ struct ChronoReaderApp: App {
                                                 .easeInOut(duration: 0.6)
                                                 .repeatForever()
                                                 .delay(Double(index) * 0.2),
-                                            value: loadingManager.isLoading
+                                            value: loadingManager.shouldShowFullscreenLoading
                                         )
                                 }
                             }
@@ -326,7 +350,25 @@ struct ChronoReaderApp: App {
                         .shadow(color: Color.blue.opacity(0.5), radius: 15)
                         .transition(.scale.combined(with: .opacity))
                     }
-                    .animation(.easeInOut(duration: 0.3), value: loadingManager.isLoading)
+                    .animation(.easeInOut(duration: 0.3), value: loadingManager.shouldShowFullscreenLoading)
+                }
+            }
+            .onChange(of: scenePhase) { newPhase in
+                switch newPhase {
+                case .active:
+                    print("App se volvió activa")
+                    // Asegurarse de que no haya indicadores de carga activos
+                    DispatchQueue.main.async {
+                        loadingManager.forceStopAllLoading()
+                    }
+                    // Notificar a los componentes que la app está activa
+                    NotificationCenter.default.post(name: NSNotification.Name("AppBecameActive"), object: nil)
+                case .inactive:
+                    print("App se volvió inactiva")
+                case .background:
+                    print("App está en segundo plano")
+                @unknown default:
+                    print("Estado de escena desconocido")
                 }
             }
             .preferredColorScheme(selectedColorScheme)
