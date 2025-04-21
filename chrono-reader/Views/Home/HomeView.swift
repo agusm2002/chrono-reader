@@ -12,6 +12,7 @@ import Foundation
 import UIKit
 import CoreGraphics
 import BackgroundTasks
+import AVFoundation
 
 // Definir alias para evitar ambigüedades
 typealias ZipArchive = ZIPFoundation.Archive
@@ -185,7 +186,7 @@ class HomeViewModel: ObservableObject {
         case .all:
             break
         case .books:
-            filtered = filtered.filter { $0.book.type == .epub || $0.book.type == .pdf }
+            filtered = filtered.filter { $0.book.type == .epub || $0.book.type == .pdf || $0.book.type == .m4b }
         case .comics:
             filtered = filtered.filter { $0.book.type == .cbz || $0.book.type == .cbr }
         case .favorites:
@@ -314,6 +315,8 @@ class HomeViewModel: ObservableObject {
                 processComicBookFile(url: destinationURL, type: (fileExtension == "cbz" ? .cbz : .cbr))
             case "epub":
                 processEpubFile(url: destinationURL)
+            case "m4b":
+                processM4BFile(url: destinationURL)
             default:
                 // Para otros tipos de archivo, crearemos un nuevo Book con información básica
                 // Limpiar el nombre del archivo eliminando el prefijo UUID
@@ -331,6 +334,7 @@ class HomeViewModel: ObservableObject {
             // Guardar los cambios inmediatamente
             saveBooks()
             // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
+            
         } catch {
             print("Error al copiar el archivo: \(error)")
             // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
@@ -348,6 +352,8 @@ class HomeViewModel: ObservableObject {
                     processComicBookFile(url: destinationURL, type: (fileExtension == "cbz" ? .cbz : .cbr))
                 case "epub":
                     processEpubFile(url: destinationURL)
+                case "m4b":
+                    processM4BFile(url: destinationURL)
                 default:
                     // Limpiar el nombre del archivo eliminando el prefijo UUID
                     let originalFileName = destinationURL.lastPathComponent
@@ -378,57 +384,87 @@ class HomeViewModel: ObservableObject {
         
         var coverImage: UIImage?
         var author: String = "Desconocido"
+        var series: String? = nil
+        var issueNumber: Int? = nil
         
         // Limpiar el nombre del archivo eliminando el prefijo UUID
         let originalFileName = url.lastPathComponent
-        let cleanFileName = originalFileName.replacingOccurrences(
+        var title = originalFileName.replacingOccurrences(
             of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-",
             with: "",
             options: .regularExpression
         )
         
-        // Eliminar la extensión del archivo
-        let fileNameWithoutExtension = cleanFileName.replacingOccurrences(
-            of: "\\.(cbz|cbr)$",
-            with: "",
-            options: [.regularExpression, .caseInsensitive]
-        )
+        print("Nombre limpio: \(title)")
         
-        var title: String = fileNameWithoutExtension
-        var series: String?
-        var issueNumber: Int?
+        // Obtener el controlador adecuado según el tipo de archivo
+        let controller = ArchiveHelper.getController(for: type)
         
-        // Usar el controlador adecuado según el tipo de archivo
-        if type == .cbz {
-            // Para archivos CBZ (ZIP)
-            guard let archive = ZipArchive(url: url, accessMode: .read) else {
-                print("Error: No se pudo abrir el archivo CBZ")
-                return
-            }
+        do {
+            // Intentar obtener la portada usando el controlador
+            print("Obteniendo portada usando ArchiveHelper")
+            coverImage = try controller.getThumbnailImage(for: url)
+            print("Portada obtenida correctamente")
             
-            // Intentar extraer ComicInfo.xml
-            extractComicInfoFromZip(archive: archive, url: url, title: &title, author: &author, series: &series, issueNumber: &issueNumber)
-            
-            // Extraer la portada
-            coverImage = extractCoverFromZip(archive: archive)
-        } else if type == .cbr {
-            // Para archivos CBR (RAR)
-            do {
-                print("Intentando abrir archivo RAR: \(url.path)")
-                let archive = try RarArchive(path: url.path, password: nil)
+            // Intentar obtener metadatos ComicInfo.xml si existe
+            if let comicInfoData = try controller.getComicInfo(for: url) {
+                print("ComicInfo.xml encontrado, extrayendo metadatos")
                 
-                // Intentar extraer ComicInfo.xml
-                extractComicInfoFromRar(archive: archive, url: url, title: &title, author: &author, series: &series, issueNumber: &issueNumber)
+                // Usar XMLParser para procesar los metadatos
+                let comicInfoHandler = ComicInfoHandler()
+                let parser = XMLParser(data: comicInfoData)
+                parser.delegate = comicInfoHandler
                 
-                // Extraer la portada
-                coverImage = try extractCoverFromRar(archive: archive)
-            } catch {
-                print("Error al abrir archivo RAR: \(error)")
-                return
+                if parser.parse() {
+                    if let comicTitle = comicInfoHandler.title, !comicTitle.isEmpty {
+                        // Actualizar el título solo si se encontró uno en los metadatos
+                        title = comicTitle
+                        print("Título encontrado en metadatos: \(title)")
+                    }
+                    
+                    if let comicSeries = comicInfoHandler.series, !comicSeries.isEmpty {
+                        series = comicSeries
+                        print("Serie encontrada: \(series ?? "Desconocida")")
+                    }
+                    
+                    if let numberStr = comicInfoHandler.number, let number = Int(numberStr) {
+                        issueNumber = number
+                        print("Número encontrado: \(number)")
+                    }
+                    
+                    if let comicWriter = comicInfoHandler.writer, !comicWriter.isEmpty {
+                        author = comicWriter
+                        print("Autor encontrado: \(author)")
+                    }
+                }
             }
-        } else {
-            print("Tipo de archivo no soportado: \(type.rawValue)")
-            return
+        } catch {
+            print("Error al procesar el archivo con ArchiveHelper: \(error)")
+            
+            // Si falla, intentar métodos alternativos específicos del tipo
+            if type == .cbz {
+                print("Intentando método alternativo para CBZ: \(url.path)")
+                if let archive = ZipArchive(url: url, accessMode: .read) {
+                    // Extraer portada
+                    coverImage = extractCoverFromZip(archive: archive)
+                    
+                    // Extraer metadatos si existen
+                    extractComicInfoFromZip(archive: archive, url: url, title: &title, author: &author, series: &series, issueNumber: &issueNumber)
+                }
+            } else if type == .cbr {
+                print("Intentando método alternativo para CBR: \(url.path)")
+                do {
+                    let archive = try RarArchive(path: url.path, password: nil)
+                    
+                    // Extraer portada
+                    coverImage = try extractCoverFromRar(archive: archive)
+                    
+                    // Extraer metadatos si existen
+                    extractComicInfoFromRar(archive: archive, url: url, title: &title, author: &author, series: &series, issueNumber: &issueNumber)
+                } catch {
+                    print("Error al abrir archivo RAR: \(error)")
+                }
+            }
         }
         
         // Continuar con el procesamiento del cómic
@@ -448,7 +484,7 @@ class HomeViewModel: ObservableObject {
         updatedBookCopy.series = series
         updatedBookCopy.issueNumber = issueNumber
         
-        // Crear una nueva instancia con los metadatos actualizados
+        // Crear una nueva instancia que combine todos los datos actualizados
         newBook = CompleteBook(
             id: newBook.id,
             title: updatedBookCopy.title,
@@ -457,7 +493,8 @@ class HomeViewModel: ObservableObject {
             type: updatedBookCopy.type,
             progress: updatedBookCopy.progress,
             localURL: url,
-            cover: coverImage
+            cover: coverImage,
+            lastReadDate: updatedBookCopy.lastReadDate
         )
         
         addBook(newBook)
@@ -550,7 +587,7 @@ class HomeViewModel: ObservableObject {
     
     // Función para extraer la portada de un archivo ZIP
     func extractCoverFromZip(archive: ZipArchive) -> UIImage? {
-        for entry in archive.sorted(by: { $0.path < $1.path }) {
+        for entry in archive.sorted { $0.path < $1.path } {
             let entryPath = entry.path.lowercased()
             if entryPath.hasSuffix(".jpg") || entryPath.hasSuffix(".jpeg") || entryPath.hasSuffix(".png") {
                 do {
@@ -563,10 +600,10 @@ class HomeViewModel: ObservableObject {
                     } else {
                         print("No se pudo crear la imagen desde los datos")
                     }
+                    break
                 } catch {
                     print("Error al extraer la portada: \(error)")
                 }
-                break
             }
         }
         return nil
@@ -615,6 +652,8 @@ class HomeViewModel: ObservableObject {
             return .cbr
         case "cbz":
             return .cbz
+        case "m4b":
+            return .m4b
         default:
             return .epub // Tipo por defecto
         }
@@ -717,7 +756,7 @@ class HomeViewModel: ObservableObject {
                 print("Regenerando portada para: \(book.book.title)")
                 
                 if let coverImage = extractCoverFromFile(url: url, type: .epub) {
-                    // Crear una nueva instancia con la portada regenerada
+                    // Crear una nueva instancia que combine todos los datos actualizados
                     let updatedBook = CompleteBook(
                         id: book.id,
                         title: book.book.title,
@@ -725,7 +764,7 @@ class HomeViewModel: ObservableObject {
                         coverImage: book.book.coverImage,
                         type: book.book.type,
                         progress: book.book.progress,
-                        localURL: book.metadata.localURL,
+                        localURL: url,
                         cover: coverImage,
                         lastReadDate: book.book.lastReadDate
                     )
@@ -751,7 +790,7 @@ class HomeViewModel: ObservableObject {
                        fileManager.fileExists(atPath: url.path) {
                         print("Intentando regenerar portada desde: \(url.path)")
                         if let coverImage = extractCoverFromFile(url: url, type: book.book.type) {
-                            // Crear una nueva instancia con la portada regenerada
+                            // Crear una nueva instancia que combine todos los datos actualizados
                             let updatedBook = CompleteBook(
                                 id: book.id,
                                 title: book.book.title,
@@ -782,7 +821,7 @@ class HomeViewModel: ObservableObject {
                    fileManager.fileExists(atPath: url.path) {
                     print("Intentando generar portada desde: \(url.path)")
                     if let coverImage = extractCoverFromFile(url: url, type: book.book.type) {
-                        // Crear una nueva instancia con la portada generada
+                        // Crear una nueva instancia que combine todos los datos actualizados
                         let updatedBook = CompleteBook(
                             id: book.id,
                             title: book.book.title,
@@ -888,33 +927,45 @@ class HomeViewModel: ObservableObject {
         
         print("Nombre limpio: \(cleanFileName)")
         
-        if type == .cbz, let archive = ZipArchive(url: url, accessMode: .read) {
-            // Ordenar las entradas para asegurarnos de obtener la primera imagen
-            let sortedEntries = archive.sorted { $0.path < $1.path }
-            
-            for entry in sortedEntries {
-                let entryPath = entry.path.lowercased()
-                if entryPath.hasSuffix(".jpg") || entryPath.hasSuffix(".jpeg") || entryPath.hasSuffix(".png") {
-                    do {
-                        print("Encontrada posible portada: \(entry.path)")
-                        var data = Data()
-                        try archive.extract(entry) { data.append($0) }
-                        if let image = UIImage(data: data) {
-                            print("Portada extraída correctamente")
-                            return image
-                        } else {
-                            print("No se pudo crear la imagen desde los datos")
+        if type == .cbz {
+            print("Procesando archivo CBZ: \(url.path)")
+            // Usar el ArchiveHelper en lugar de acceder directamente al ZIP
+            let controller = ArchiveHelper.getController(for: .cbz)
+            do {
+                return try controller.getThumbnailImage(for: url)
+            } catch {
+                print("Error al extraer portada de CBZ: \(error)")
+                
+                // Intento alternativo con ZipArchive directo si falla el controlador
+                if let archive = ZipArchive(url: url, accessMode: .read) {
+                    // Ordenar las entradas para asegurarnos de obtener la primera imagen
+                    let sortedEntries = archive.sorted { $0.path < $1.path }
+                    
+                    for entry in sortedEntries {
+                        let entryPath = entry.path.lowercased()
+                        if entryPath.hasSuffix(".jpg") || entryPath.hasSuffix(".jpeg") || entryPath.hasSuffix(".png") {
+                            do {
+                                print("Encontrada posible portada: \(entry.path)")
+                                var data = Data()
+                                try archive.extract(entry) { data.append($0) }
+                                if let image = UIImage(data: data) {
+                                    print("Portada extraída correctamente")
+                                    return image
+                                } else {
+                                    print("No se pudo crear la imagen desde los datos")
+                                }
+                                break
+                            } catch {
+                                print("Error al extraer la portada: \(error)")
+                            }
                         }
-                        break
-                    } catch {
-                        print("Error al extraer la portada: \(error)")
                     }
+                    print("No se encontraron imágenes en el archivo")
                 }
             }
-            print("No se encontraron imágenes en el archivo")
         } else if type == .cbr {
             do {
-                print("Intentando abrir archivo RAR para extraer portada: \(url.path)")
+                print("Intentando abrir archivo RAR: \(url.path)")
                 let archive = try RarArchive(path: url.path, password: nil)
                 
                 let entries = try archive.entries()
@@ -939,10 +990,11 @@ class HomeViewModel: ObservableObject {
                     print("No se encontraron imágenes en el archivo RAR")
                 }
             } catch {
-                print("Error al extraer portada de archivo RAR: \(error)")
+                print("Error al abrir archivo RAR: \(error)")
             }
         } else {
-            print("No se pudo abrir el archivo")
+            print("Tipo de archivo no soportado: \(type.rawValue)")
+            return nil
         }
         
         return nil
@@ -1145,7 +1197,89 @@ class HomeViewModel: ObservableObject {
         addBook(newBook)
         saveBooks() // Guardar inmediatamente después de añadir
     }
-
+    
+    // Función para procesar un archivo M4B
+    func processM4BFile(url: URL) {
+        print("Procesando M4B: \(url.lastPathComponent)")
+        
+        var coverImage: UIImage?
+        var author: String = "Desconocido"
+        
+        // Limpiar el nombre del archivo eliminando el prefijo UUID
+        let originalFileName = url.lastPathComponent
+        let cleanFileName = originalFileName.replacingOccurrences(
+            of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-",
+            with: "",
+            options: .regularExpression
+        )
+        
+        // Eliminar la extensión del archivo
+        let fileNameWithoutExtension = cleanFileName.replacingOccurrences(
+            of: "\\.m4b$",
+            with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        
+        var title: String = fileNameWithoutExtension
+        
+        // Intentar extraer metadatos y portada usando AVAsset
+        let asset = AVAsset(url: url)
+        
+        // Extraer metadatos
+        for item in asset.metadata {
+            if let keySpace = item.keySpace, let key = item.key {
+                print("Metadato encontrado: \(keySpace) - \(key)")
+                
+                // Comprobar metadatos comunes
+                if let commonKey = item.commonKey {
+                    switch commonKey {
+                    case AVMetadataKey.commonKeyTitle:
+                        if let titleValue = item.stringValue {
+                            title = titleValue
+                            print("Título extraído: \(title)")
+                        }
+                    case AVMetadataKey.commonKeyArtist, AVMetadataKey.commonKeyAuthor:
+                        if let artistValue = item.stringValue {
+                            author = artistValue
+                            print("Autor extraído: \(author)")
+                        }
+                    case AVMetadataKey.commonKeyArtwork:
+                        if let artworkData = item.dataValue, let image = UIImage(data: artworkData) {
+                            coverImage = image
+                            print("Portada extraída de los metadatos")
+                        }
+                    default:
+                        break
+                    }
+                }
+            }
+        }
+        
+        // Si no se encontró portada, usar una imagen predeterminada para audiolibros
+        if coverImage == nil {
+            // Crear una imagen predeterminada para audiolibros
+            let config = UIImage.SymbolConfiguration(pointSize: 150, weight: .regular)
+            if let defaultImage = UIImage(systemName: "headphones.circle.fill", withConfiguration: config)?.withTintColor(.systemGreen, renderingMode: .alwaysOriginal) {
+                coverImage = defaultImage
+                print("Usando portada predeterminada para audiolibro")
+            }
+        }
+        
+        // Crear un nuevo libro con los metadatos extraídos
+        let newBook = CompleteBook(
+            title: title,
+            author: author,
+            coverImage: "",
+            type: .m4b,
+            progress: 0.0,
+            localURL: url,
+            cover: coverImage
+        )
+        
+        addBook(newBook)
+        saveBooks() // Guardar inmediatamente después de añadir
+    }
+    
     // Función para actualizar el estado de favorito de un libro
     func toggleFavorite(book: CompleteBook) {
         if let index = books.firstIndex(where: { $0.id == book.id }) {
@@ -1572,7 +1706,7 @@ struct HomeView: View {
         .coordinateSpace(name: "scroll")
         .fileImporter(
             isPresented: $viewModel.isImporting,
-            allowedContentTypes: [UTType.pdf, UTType.epub, UTType.init(filenameExtension: "cbr")!, UTType.init(filenameExtension: "cbz")!],
+            allowedContentTypes: [UTType.pdf, UTType.epub, UTType.init(filenameExtension: "cbr")!, UTType.init(filenameExtension: "cbz")!, UTType.init(filenameExtension: "m4b")!],
             allowsMultipleSelection: true
         ) { result in
             // Activar el indicador de carga antes de comenzar el proceso de selección
@@ -1599,7 +1733,7 @@ struct HomeView: View {
                         }
                     }
                     
-                    // Desactivar el indicador de carga cuando se completa todo el proceso
+                    // Desactivar el indicador de carga cuando se complete todo el proceso
                     DispatchQueue.main.async {
                         print("✅ Importación completada: \(urls.count) archivos procesados")
                         viewModel.isProcessingFiles = false
@@ -2191,14 +2325,14 @@ struct SearchBarView: View {
                     .padding(.vertical, 10)
                     .font(.system(size: 16))
                     .focused($isFocused)
-                    .onChange(of: isFocused) { newValue in
+                    .onChange(of: isFocused) { _ in
                         withAnimation {
-                            isSearching = newValue || !text.isEmpty
+                            isSearching = isFocused || !text.isEmpty
                         }
                     }
-                    .onChange(of: text) { newValue in
+                    .onChange(of: text) { _ in
                         withAnimation {
-                            isSearching = isFocused || !newValue.isEmpty
+                            isSearching = isFocused || !text.isEmpty
                         }
                     }
 

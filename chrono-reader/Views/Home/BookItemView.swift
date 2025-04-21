@@ -12,10 +12,11 @@ struct BookItemView: View {
     @State private var isShowingDeleteMenu = false
     @State private var isShowingComicViewer = false
     @State private var isShowingEPUBViewer = false
-    @State private var animateTransition = false
-    @State private var isShowingRenameAlert = false
-    @State private var newTitle = ""
+    @State private var isShowingAudioPlayer = false
     @State private var isShowingCoverFullScreen = false
+    @State private var isShowingRenameAlert = false
+    @State private var animateTransition = false
+    @State private var newTitle = ""
     
     // Notificación para actualizar la UI cuando se cambie un título
     private let titleChangedNotification = NotificationCenter.default.publisher(for: Notification.Name("CustomTitleChanged"))
@@ -117,18 +118,7 @@ struct BookItemView: View {
                 }
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    print("Abriendo libro: \(book.book.title) con progreso: \(book.book.progress * 100)%")
-                    
-                    // Determinar qué visor abrir basado en el tipo de libro
-                    switch book.book.type {
-                    case .cbz, .cbr:
-                        isShowingComicViewer = true
-                    case .epub:
-                        isShowingEPUBViewer = true
-                    default:
-                        // Otros tipos de libros
-                        break
-                    }
+                    openBook()
                 }
             }
             .onLongPressGesture {
@@ -235,6 +225,15 @@ struct BookItemView: View {
             }
         }) {
             EPUBViewerView(book: book)
+                .transition(.opacity)
+        }
+        // Audio Player
+        .fullScreenCover(isPresented: $isShowingAudioPlayer, onDismiss: {
+            withAnimation {
+                animateTransition = false
+            }
+        }) {
+            AudioPlayerView(book: book)
                 .transition(.opacity)
         }
         // Visor de portada a pantalla completa
@@ -389,15 +388,48 @@ struct BookItemView: View {
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .clipped()
                         .allowsHitTesting(false)
+                        // Aplicar modificadores específicos según el tipo de libro
+                        .modifier(CoverLayoutModifier(bookType: book.book.type))
                 }
             } else {
                 ZStack {
                     Color(.systemGray5)
-                    Image(systemName: "book.closed")
-                        .font(.title)
-                        .foregroundColor(.gray)
-                        .allowsHitTesting(false)
+                    // Icono específico según el tipo de libro
+                    Group {
+                        if book.book.type == .m4b {
+                            Image(systemName: "headphones.circle.fill")
+                                .font(.system(size: 40))
+                                .foregroundColor(.gray)
+                        } else {
+                            Image(systemName: "book.closed")
+                                .font(.title)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .allowsHitTesting(false)
                 }
+                // Aplicar modificadores específicos según el tipo de libro
+                .modifier(CoverLayoutModifier(bookType: book.book.type))
+            }
+        }
+    }
+
+    // Modificador para adaptar la portada según el tipo de libro
+    struct CoverLayoutModifier: ViewModifier {
+        let bookType: BookType
+        
+        func body(content: Content) -> some View {
+            if bookType == .m4b {
+                // Para audiolibros, centrar la portada cuadrada y añadir un fondo
+                content
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.black.opacity(0.1))
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                // Para libros y cómics, mantener la proporción vertical
+                content
             }
         }
     }
@@ -419,6 +451,20 @@ struct BookItemView: View {
         EmptyView()
     }
     
+    private func openBook() {
+        switch book.book.type {
+        case .cbz, .cbr:
+            isShowingComicViewer = true
+        case .epub:
+            isShowingEPUBViewer = true
+        case .m4b:
+            isShowingAudioPlayer = true
+        case .pdf:
+            // Implementación futura para PDF
+            break
+        }
+    }
+
     private func formatLastReadDate(_ date: Date) -> String {
         let calendar = Calendar.current
         if calendar.isDateInToday(date) {
@@ -455,6 +501,7 @@ struct BookItemView: View {
         case .epub: return Color(red: 0.3, green: 0.6, blue: 0.9)
         case .pdf: return Color(red: 0.9, green: 0.3, blue: 0.3)
         case .cbr, .cbz: return Color(red: 0.7, green: 0.4, blue: 0.9)
+        case .m4b: return Color(red: 0.3, green: 0.8, blue: 0.5) // Color verde-azulado para audiolibros
         }
     }
 

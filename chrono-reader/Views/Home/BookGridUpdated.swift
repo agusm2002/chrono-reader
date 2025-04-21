@@ -190,6 +190,7 @@ struct BookGridUpdatedView: View {
         case .epub: return Color(red: 0.3, green: 0.6, blue: 0.9)
         case .pdf: return Color(red: 0.9, green: 0.3, blue: 0.3)
         case .cbr, .cbz: return Color(red: 0.7, green: 0.4, blue: 0.9)
+        case .m4b: return Color(red: 0.3, green: 0.8, blue: 0.5) // Color verde-azulado para audiolibros
         }
     }
 }

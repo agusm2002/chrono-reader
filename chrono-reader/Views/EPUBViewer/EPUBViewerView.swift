@@ -260,7 +260,7 @@ struct EPUBPageView: View {
                     }
                 }
                 .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
-                .onChange(of: viewModel.currentPage) { newValue in
+                .onChange(of: viewModel.currentPage) { _ in
                     viewModel.updateCurrentChapter()
                 }
             } else {
@@ -795,4 +795,4 @@ struct EPUBSettingsView: View {
         }
         .zIndex(10)
     }
-} 
+}

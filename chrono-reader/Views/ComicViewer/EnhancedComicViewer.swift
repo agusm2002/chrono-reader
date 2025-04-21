@@ -502,14 +502,18 @@ struct EnhancedComicViewer: View {
         .onDisappear {
             if !model.isLoading && model.totalPages > 0 {
                 if let updatedBook = model.saveProgress() {
-                    onProgressUpdate?(updatedBook)
-                    
-                    // Notificar a la aplicación sobre el cambio en el progreso
-                    NotificationCenter.default.post(
-                        name: Notification.Name("BookProgressUpdated"),
-                        object: nil,
-                        userInfo: ["book": updatedBook]
-                    )
+                    // Usar DispatchQueue.main para asegurar que la notificación se envíe en el hilo principal
+                    DispatchQueue.main.async {
+                        // Primero llamar al callback si existe
+                        onProgressUpdate?(updatedBook)
+                        
+                        // Luego enviar la notificación
+                        NotificationCenter.default.post(
+                            name: Notification.Name("BookProgressUpdated"),
+                            object: nil,
+                            userInfo: ["book": updatedBook]
+                        )
+                    }
                 }
             }
         }

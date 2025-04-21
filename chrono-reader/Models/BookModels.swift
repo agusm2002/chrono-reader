@@ -8,6 +8,7 @@ enum BookType: String, Codable {
     case pdf
     case cbr
     case cbz
+    case m4b
 }
 
 struct Book: Identifiable, Codable {

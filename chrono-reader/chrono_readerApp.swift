@@ -7,6 +7,7 @@
 // App/ChronoReaderApp.swift
 // App/ChronoReaderApp.swift
 import SwiftUI
+import AVFoundation
 
 // Añadir claves al Info.plist
 class AppDelegate: NSObject, UIApplicationDelegate {
@@ -16,7 +17,33 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         // Configurar apariencia global de la navegación
         configureGlobalAppearance()
         
+        // Configurar reproducción de audio en segundo plano
+        configureAudioBackgroundPlayback()
+        
+        // Inicializar la configuración de reproducción en segundo plano
+        BackgroundPlaybackConfig.shared.configureBackgroundPlayback()
+        
         return true
+    }
+    
+    // Configurar reproducción de audio en segundo plano
+    private func configureAudioBackgroundPlayback() {
+        // Configurar la sesión de audio para reproducción en segundo plano
+        do {
+            // Usar categoría playback para permitir reproducción en segundo plano
+            try AVAudioSession.sharedInstance().setCategory(
+                .playback,
+                mode: .spokenAudio,  // Modo optimizado para audiolibros
+                policy: .longFormAudio  // Política para contenido de larga duración
+            )
+            
+            // Activar la sesión de audio
+            try AVAudioSession.sharedInstance().setActive(true)
+            
+            print("Sesión de audio configurada para reproducción en segundo plano")
+        } catch {
+            print("Error al configurar la sesión de audio: \(error)")
+        }
     }
     
     // Añadir método para manejar cuando la app entra en segundo plano
@@ -25,6 +52,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         
         // Notificar a los componentes que la app está entrando en segundo plano
         NotificationCenter.default.post(name: NSNotification.Name("AppDidEnterBackground"), object: nil)
+        
+        // Asegurarse de que la sesión de audio siga activa en segundo plano
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Error al mantener activa la sesión de audio: \(error)")
+        }
     }
     
     // Añadir método para manejar cuando la app vuelve a primer plano
@@ -33,6 +67,13 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         
         // Notificar a los componentes que la app está volviendo a primer plano
         NotificationCenter.default.post(name: NSNotification.Name("AppWillEnterForeground"), object: nil)
+        
+        // Reactivar la sesión de audio
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("Error al reactivar la sesión de audio: \(error)")
+        }
         
         // Liberar cualquier bloqueo potencial de LoadingManager
         DispatchQueue.main.async {
@@ -177,6 +218,7 @@ struct ChronoReaderApp: App {
                         print("Configurando permisos de acceso a archivos")
                     }
                     .disabled(loadingManager.shouldShowFullscreenLoading) // Solo deshabilitar cuando se muestre el indicador
+                    .enableAudioBackgroundPlayback() // Habilitar reproducción en segundo plano
                 
                 // Overlay de carga simple y efectivo - solo mostrar cuando shouldShowFullscreenLoading es true
                 if loadingManager.shouldShowFullscreenLoading {
@@ -353,8 +395,8 @@ struct ChronoReaderApp: App {
                     .animation(.easeInOut(duration: 0.3), value: loadingManager.shouldShowFullscreenLoading)
                 }
             }
-            .onChange(of: scenePhase) { newPhase in
-                switch newPhase {
+            .onChange(of: scenePhase) { _ in
+                switch scenePhase {
                 case .active:
                     print("App se volvió activa")
                     // Asegurarse de que no haya indicadores de carga activos

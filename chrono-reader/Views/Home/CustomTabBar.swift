@@ -32,9 +32,15 @@ struct CustomTabBar: View {
                 }
             }
         }
+        // Optimizar las actualizaciones de colorScheme
         .onChange(of: colorScheme) { _ in
-            withAnimation {
-                forceUpdate.toggle() // Forzar actualización cuando cambia el colorScheme
+            // Solo actualizar si es necesario
+            let currentSchemeValue = colorScheme == .dark ? 1 : 0
+            if UserDefaults.standard.lastColorScheme != currentSchemeValue {
+                UserDefaults.standard.lastColorScheme = currentSchemeValue
+                withAnimation {
+                    forceUpdate.toggle()
+                }
             }
         }
     }
@@ -74,6 +80,18 @@ struct TabBarButton: View {
                     forceUpdate.toggle() // Forzar actualización de la vista
                 }
             }
+        }
+    }
+}
+
+// Extensión para evitar actualizaciones duplicadas de esquema de color
+extension UserDefaults {
+    var lastColorScheme: Int {
+        get {
+            return integer(forKey: "CustomTabBar.lastColorScheme")
+        }
+        set {
+            set(newValue, forKey: "CustomTabBar.lastColorScheme")
         }
     }
 }

@@ -16,9 +16,22 @@
 		7C9F1B6E2D7685380032594D /* chrono-reader.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "chrono-reader.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		7C7A39392DA9FDC6004DD3E0 /* Exceptions for "chrono-reader" folder in "chrono-reader" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 7C9F1B6D2D7685380032594D /* chrono-reader */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		7C9F1B702D7685380032594D /* chrono-reader */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7C7A39392DA9FDC6004DD3E0 /* Exceptions for "chrono-reader" folder in "chrono-reader" target */,
+			);
 			path = "chrono-reader";
 			sourceTree = "<group>";
 		};
@@ -272,6 +285,7 @@
 				DEVELOPMENT_TEAM = GVTKB86X8G;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "chrono-reader/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = ChronoReader;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -303,6 +317,7 @@
 				DEVELOPMENT_TEAM = GVTKB86X8G;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "chrono-reader/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = ChronoReader;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.books";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

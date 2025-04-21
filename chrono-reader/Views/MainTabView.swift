@@ -55,9 +55,17 @@ struct MainTabView: View {
                 }
             }
         }
+        // Optimizar actualizaciones de colorScheme para reducir mensajes en consola
         .onChange(of: colorScheme) { _ in
-            withAnimation {
-                forceUpdate.toggle() // Forzar actualización cuando cambia el colorScheme
+            // Almacenar el último valor para evitar actualizaciones innecesarias
+            let isDark = colorScheme == .dark
+            let currentScheme: ColorScheme = isDark ? .dark : .light
+            
+            if currentScheme != UserDefaults.standard.colorScheme {
+                UserDefaults.standard.colorScheme = currentScheme
+                withAnimation {
+                    forceUpdate.toggle() // Forzar actualización cuando cambia el colorScheme
+                }
             }
         }
     }
@@ -66,5 +74,17 @@ struct MainTabView: View {
 struct MainTabView_Previews: PreviewProvider {
     static var previews: some View {
         MainTabView()
+    }
+}
+
+// Extensión para almacenar el último valor de colorScheme
+extension UserDefaults {
+    var colorScheme: ColorScheme {
+        get {
+            return bool(forKey: "lastColorSchemeWasDark") ? .dark : .light
+        }
+        set {
+            set(newValue == .dark, forKey: "lastColorSchemeWasDark")
+        }
     }
 }
