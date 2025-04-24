@@ -253,33 +253,33 @@ struct EPUBPageView: View {
         GeometryReader { geometry in
             if viewModel.readerConfig.scrollDirection == .horizontal {
                 // Paginación horizontal
-                TabView(selection: $viewModel.currentPage) {
-                    ForEach(0..<viewModel.totalPages, id: \.self) { index in
-                        EPUBPageContentView(viewModel: viewModel, pageIndex: index)
-                            .tag(index)
+                TabView(selection: $viewModel.currentPosition) {
+                    ForEach(0..<(viewModel.epubBook?.totalPositions ?? 0), id: \.self) { position in
+                        EPUBPageContentView(viewModel: viewModel, position: position)
+                            .tag(position)
                     }
                 }
                 .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
-                .onChange(of: viewModel.currentPage) { _ in
+                .onChange(of: viewModel.currentPosition) { newPosition in
                     viewModel.updateCurrentChapter()
                 }
             } else {
                 // Paginación vertical
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
-                        ForEach(0..<viewModel.totalPages, id: \.self) { index in
-                            EPUBPageContentView(viewModel: viewModel, pageIndex: index)
+                        ForEach(0..<(viewModel.epubBook?.totalPositions ?? 0), id: \.self) { position in
+                            EPUBPageContentView(viewModel: viewModel, position: position)
                                 .frame(width: geometry.size.width, 
                                        height: geometry.size.height)
-                                .id(index)
+                                .id(position)
                         }
                     }
                 }
                 .onAppear {
-                    // Scroll to the current page when appearing
+                    // Scroll to the current position when appearing
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         if let scrollView = UIApplication.shared.windows.first?.rootViewController?.view.subviews.first(where: { $0 is UIScrollView }) as? UIScrollView {
-                            let contentOffset = CGPoint(x: 0, y: CGFloat(viewModel.currentPage) * geometry.size.height)
+                            let contentOffset = CGPoint(x: 0, y: CGFloat(viewModel.currentPosition) * geometry.size.height)
                             scrollView.setContentOffset(contentOffset, animated: false)
                         }
                     }
@@ -292,109 +292,203 @@ struct EPUBPageView: View {
 // Vista para mostrar el contenido HTML de una página
 struct EPUBPageContentView: UIViewRepresentable {
     @ObservedObject var viewModel: EPUBViewerViewModel
-    var pageIndex: Int
+    let position: Int
     
     func makeUIView(context: Context) -> WKWebView {
-        // Configurar preferencias de WebView
-        let preferences = WKPreferences()
-        preferences.javaScriptEnabled = false // Deshabilitar JavaScript por seguridad
-        
-        let configuration = WKWebViewConfiguration()
-        configuration.preferences = preferences
-        
-        // Crear el WebView
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = WKWebView()
         webView.navigationDelegate = context.coordinator
         webView.scrollView.isScrollEnabled = false
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
+        
+        // Configuración para paginación
+        webView.scrollView.isPagingEnabled = true
+        webView.scrollView.bounces = false
+        
+        // Configurar el viewport para que ocupe todo el ancho
+        let viewportScript = WKUserScript(
+            source: "var meta = document.createElement('meta'); meta.setAttribute('name', 'viewport'); meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'); document.getElementsByTagName('head')[0].appendChild(meta);",
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
+        webView.configuration.userContentController.addUserScript(viewportScript)
         
         return webView
     }
     
     func updateUIView(_ webView: WKWebView, context: Context) {
-        guard let epubBook = viewModel.epubBook,
-              pageIndex < epubBook.spine.spineReferences.count else { return }
+        guard let epubBook = viewModel.epubBook else { return }
         
-        let spineRef = epubBook.spine.spineReferences[pageIndex]
+        // Encontrar el recurso y página correspondiente a esta posición
+        var currentPosition = 0
+        var foundResourceId: String? = nil
+        var foundPageIndex = 0
         
-        if let chapterContent = viewModel.getPageContent(for: pageIndex) {
+        for spineRef in epubBook.spine.spineReferences {
+            if let resource = epubBook.pagedResources[spineRef.resourceId] {
+                if position < currentPosition + resource.totalPages {
+                    foundResourceId = spineRef.resourceId
+                    foundPageIndex = position - currentPosition
+                    break
+                }
+                currentPosition += resource.totalPages
+            }
+        }
+        
+        guard let resourceId = foundResourceId,
+              let spineRef = epubBook.spine.spineReferences.first(where: { $0.resourceId == resourceId }),
+              let resource = epubBook.resources[resourceId],
+              let spineIndex = epubBook.spine.spineReferences.firstIndex(where: { $0.resourceId == resourceId }) else { return }
+        
+        if let chapterContent = viewModel.getPageContent(for: spineIndex) {
             // Obtener la ruta base para recursos como imágenes y CSS
             var baseURL: URL? = nil
-            if let resource = epubBook.resources[spineRef.resourceId] {
-                let resourceURL = URL(fileURLWithPath: resource.fullHref)
-                baseURL = resourceURL.deletingLastPathComponent()
-            }
+            let resourceURL = URL(fileURLWithPath: resource.fullHref)
+            baseURL = resourceURL.deletingLastPathComponent()
             
             // Crear HTML base con estilos que se adaptan a la configuración
             let baseHTML = """
             <!DOCTYPE html>
             <html>
             <head>
-                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                 <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
                 <style>
+                    :root {
+                        --page-width: \(Int(webView.bounds.width))px;
+                        --page-height: \(Int(webView.bounds.height))px;
+                        --margin-horizontal: 40px;
+                        --margin-vertical: 40px;
+                        --content-width: calc(var(--page-width) - (2 * var(--margin-horizontal)));
+                        --content-height: calc(var(--page-height) - (2 * var(--margin-vertical)));
+                    }
+                    
+                    html {
+                        width: 100%;
+                        height: 100%;
+                        margin: 0;
+                        padding: 0;
+                        overflow: hidden;
+                    }
+                    
                     body {
                         font-family: \(viewModel.readerConfig.fontName), -apple-system, sans-serif;
                         font-size: \(Int(viewModel.readerConfig.textSize))px;
                         line-height: \(viewModel.readerConfig.lineHeight);
                         color: \(colorToCSSString(viewModel.readerConfig.theme.textColor));
                         background-color: \(colorToCSSString(viewModel.readerConfig.theme.backgroundColor));
-                        padding: 20px;
-                        margin: 0;
+                        margin: var(--margin-vertical) var(--margin-horizontal);
+                        padding: 0;
+                        column-width: var(--content-width);
+                        column-gap: calc(2 * var(--margin-horizontal));
+                        column-fill: auto;
+                        height: var(--content-height);
+                        width: fit-content;
+                        max-width: none;
+                        overflow-x: hidden;
+                        overflow-y: hidden;
+                        -webkit-column-break-inside: avoid;
+                        page-break-inside: avoid;
+                        text-align: justify;
+                        hyphens: auto;
+                        -webkit-hyphens: auto;
                     }
                     
-                    /* Estilos para imágenes */
+                    /* Contenedor principal para centrar el contenido */
+                    .content-wrapper {
+                        max-width: var(--content-width);
+                        margin: 0 auto;
+                        position: relative;
+                    }
+                    
                     img, svg, audio, video {
-                        max-height: 95% !important;
-                        max-width: 100% !important;
-                        box-sizing: border-box;
+                        max-height: calc(var(--content-height) * 0.9) !important;
+                        max-width: var(--content-width) !important;
                         object-fit: contain;
                         page-break-inside: avoid;
+                        break-inside: avoid;
                         display: block;
                         margin: 1em auto;
-                        height: auto;
                     }
                     
-                    img { 
-                        -webkit-user-select: none; 
-                        user-select: none;
-                    }
-                    
-                    /* Estilos para asegurar que los cuadros de texto sean legibles */
                     p, div {
-                        max-width: 100%;
+                        max-width: var(--content-width);
                         word-wrap: break-word;
+                        margin: 0 0 1em 0;
+                        break-inside: avoid;
+                        text-indent: 1.5em;
                     }
                     
-                    /* Estilos para encabezados */
                     h1, h2, h3, h4, h5, h6 {
-                        line-height: 1.2;
-                        margin-top: 1.5em;
-                        margin-bottom: 0.5em;
+                        break-after: avoid;
+                        break-inside: avoid;
+                        margin: 2em 0 1em 0;
+                        text-align: left;
+                        width: 100%;
                     }
                     
-                    /* Estilos para enlaces */
                     a {
-                        color: #0066cc;
+                        color: \(colorToCSSString(viewModel.readerConfig.theme.textColor));
                         text-decoration: none;
                     }
                     
-                    /* Estilos para tablas */
-                    table {
-                        max-width: 100%;
-                        border-collapse: collapse;
-                        margin: 1em 0;
+                    [dir="rtl"] {
+                        direction: rtl;
+                        text-align: right;
                     }
                     
-                    /* Ajustes para el tema oscuro */
-                    @media (prefers-color-scheme: dark) {
-                        a {
-                            color: #66a9ff;
+                    [style*="writing-mode: vertical-rl"],
+                    [style*="writing-mode: vertical-lr"] {
+                        writing-mode: vertical-rl;
+                        text-orientation: upright;
+                    }
+                    
+                    /* Ajustes para diferentes tamaños de pantalla */
+                    @media screen and (max-width: 480px) {
+                        :root {
+                            --margin-horizontal: 20px;
+                            --margin-vertical: 20px;
+                        }
+                        
+                        body {
+                            font-size: \(max(Int(viewModel.readerConfig.textSize) - 2, 12))px;
+                        }
+                    }
+                    
+                    /* Ajustes para pantallas más grandes */
+                    @media screen and (min-width: 1024px) {
+                        :root {
+                            --margin-horizontal: 60px;
+                            --margin-vertical: 60px;
                         }
                     }
                 </style>
+                <script>
+                    window.addEventListener('load', function() {
+                        // Envolver el contenido en un div para centrarlo
+                        const content = document.body.innerHTML;
+                        document.body.innerHTML = '<div class="content-wrapper">' + content + '</div>';
+                        
+                        // Calcular el número total de columnas
+                        const contentWidth = document.body.scrollWidth;
+                        const pageWidth = \(Int(webView.bounds.width));
+                        const totalColumns = Math.ceil(contentWidth / pageWidth);
+                        
+                        // Desplazarse a la columna correcta
+                        const targetColumn = \(foundPageIndex);
+                        if (targetColumn < totalColumns) {
+                            window.scrollTo({
+                                left: targetColumn * pageWidth,
+                                top: 0,
+                                behavior: 'auto'
+                            });
+                        }
+                        
+                        // Ajustar la altura del contenido si es necesario
+                        const wrapper = document.querySelector('.content-wrapper');
+                        if (wrapper.offsetHeight > window.innerHeight) {
+                            document.body.style.height = window.innerHeight + 'px';
+                        }
+                    });
+                </script>
             </head>
             <body>
                 \(chapterContent)
@@ -402,8 +496,12 @@ struct EPUBPageContentView: UIViewRepresentable {
             </html>
             """
             
-            // Cargar el HTML con la URL base para resolver rutas relativas
-            webView.loadHTMLString(baseHTML, baseURL: baseURL)
+            // Cargar el HTML en el webView
+            if let baseURL = baseURL {
+                webView.loadHTMLString(baseHTML, baseURL: baseURL)
+            } else {
+                webView.loadHTMLString(baseHTML, baseURL: nil)
+            }
         }
     }
     
@@ -434,8 +532,8 @@ struct EPUBPageContentView: UIViewRepresentable {
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             // Actualizar la vista cuando se carga el contenido
             DispatchQueue.main.async {
-                if self.parent.pageIndex == self.parent.viewModel.currentPage {
-                    self.parent.viewModel.updatePageProgress(for: self.parent.pageIndex)
+                if self.parent.position == self.parent.viewModel.currentPosition {
+                    self.parent.viewModel.updateReadingProgress()
                 }
             }
         }

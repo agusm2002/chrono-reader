@@ -182,8 +182,8 @@ class EPUBService {
                 }
             }
             
-            // 9. Crear y devolver el libro EPUB
-            return EPUBBook(
+            // 9. Crear el libro EPUB
+            let book = EPUBBook(
                 title: title,
                 author: author,
                 metadata: metadata,
@@ -192,6 +192,9 @@ class EPUBService {
                 tableOfContents: tocReferences,
                 coverImageURL: coverImageURL
             )
+            
+            // 10. Procesar las posiciones
+            return processPositions(for: book)
             
         } catch {
             // Limpiar directorio temporal
@@ -251,6 +254,77 @@ class EPUBService {
                 children: children
             )
         }
+    }
+    
+    /// Calcula las posiciones y páginas para un recurso HTML
+    private static func calculatePositions(for resource: EPUBResource, 
+                                         spine: EPUBSpine,
+                                         totalBytes: Int) -> EPUBPagedResource? {
+        guard let data = resource.data,
+              let content = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        
+        // Calcular el número de posiciones basado en el tamaño del recurso
+        let resourceBytes = data.count
+        let positionsCount = max(1, Int(Double(resourceBytes) / 1024.0)) // 1 posición por cada 1KB
+        
+        // Crear las posiciones
+        var positions: [EPUBPosition] = []
+        for i in 0..<positionsCount {
+            let progression = Double(i) / Double(positionsCount - 1)
+            let totalProgression = Double(resourceBytes) / Double(totalBytes)
+            
+            positions.append(EPUBPosition(
+                resourceId: resource.resourceId,
+                progression: progression,
+                totalProgression: totalProgression,
+                pageIndex: i,
+                totalPages: positionsCount
+            ))
+        }
+        
+        // Determinar si es RTL o vertical
+        let isRTL = spine.isRightToLeft
+        let isVertical = content.contains("writing-mode: vertical")
+        
+        return EPUBPagedResource(
+            resourceId: resource.resourceId,
+            totalPages: positionsCount,
+            positions: positions,
+            isRTL: isRTL,
+            isVertical: isVertical
+        )
+    }
+    
+    /// Calcula el número total de bytes en el libro
+    private static func calculateTotalBytes(for resources: [String: EPUBResource]) -> Int {
+        return resources.values.reduce(0) { $0 + ($1.data?.count ?? 0) }
+    }
+    
+    /// Procesa el libro para calcular todas las posiciones
+    private static func processPositions(for book: EPUBBook) -> EPUBBook {
+        let totalBytes = calculateTotalBytes(for: book.resources)
+        var pagedResources: [String: EPUBPagedResource] = [:]
+        var totalPositions = 0
+        
+        // Procesar cada recurso HTML
+        for spineRef in book.spine.spineReferences {
+            if let resource = book.resources[spineRef.resourceId],
+               resource.isHTML,
+               let pagedResource = calculatePositions(for: resource, 
+                                                    spine: book.spine,
+                                                    totalBytes: totalBytes) {
+                pagedResources[spineRef.resourceId] = pagedResource
+                totalPositions += pagedResource.totalPages
+            }
+        }
+        
+        // Actualizar el libro
+        book.pagedResources = pagedResources
+        book.totalPositions = totalPositions
+        
+        return book
     }
 }
 

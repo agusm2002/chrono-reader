@@ -24,6 +24,8 @@ class EPUBBook: Identifiable, ObservableObject {
     @Published var currentChapterIndex: Int = 0
     @Published var currentPage: Int = 0
     @Published var totalPages: Int = 0
+    @Published var pagedResources: [String: EPUBPagedResource] = [:]
+    @Published var totalPositions: Int = 0
     
     init(title: String, author: String, metadata: [String: String], spine: EPUBSpine, resources: [String: EPUBResource], tableOfContents: [EPUBTocReference], coverImageURL: URL? = nil) {
         self.title = title
@@ -122,6 +124,25 @@ struct EPUBTocReference: Identifiable {
         self.level = level
         self.children = children
     }
+}
+
+/// Representa una posición específica en el libro
+struct EPUBPosition: Identifiable {
+    let id = UUID()
+    var resourceId: String
+    var progression: Double // 0.0 a 1.0 dentro del recurso
+    var totalProgression: Double // 0.0 a 1.0 en todo el libro
+    var pageIndex: Int // Índice de página dentro del recurso
+    var totalPages: Int // Total de páginas en el recurso
+}
+
+/// Representa un recurso paginado
+struct EPUBPagedResource {
+    var resourceId: String
+    var totalPages: Int
+    var positions: [EPUBPosition]
+    var isRTL: Bool
+    var isVertical: Bool
 }
 
 // MARK: - Modelos adicionales para el parser

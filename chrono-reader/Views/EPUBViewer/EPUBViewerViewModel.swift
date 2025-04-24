@@ -33,6 +33,10 @@ class EPUBViewerViewModel: ObservableObject {
     // Cancellables para Combine
     private var cancellables: Set<AnyCancellable> = []
     
+    @Published var currentPosition: Int = 0
+    @Published var currentResourceId: String = ""
+    @Published var currentPageInResource: Int = 0
+    
     init(book: CompleteBook) {
         self.bookReference = book
         
@@ -373,28 +377,37 @@ class EPUBViewerViewModel: ObservableObject {
         return nil
     }
     
-    /// Actualiza el progreso de lectura basado en la página actual
+    /// Actualiza el progreso de lectura basado en la posición actual
     func updateReadingProgress() {
-        guard totalPages > 0 else { return }
-        readingProgress = Double(currentPage) / Double(totalPages - 1)
-    }
-    
-    /// Actualiza el progreso para una página específica
-    func updatePageProgress(for pageIndex: Int) {
-        if pageIndex == currentPage {
-            updateReadingProgress()
+        guard let epubBook = epubBook,
+              let pagedResource = epubBook.pagedResources[currentResourceId],
+              pagedResource.totalPages > 0 else {
+            readingProgress = 0.0
+            return
         }
+        
+        // Calcular progreso dentro del recurso actual
+        let resourceProgress = Double(currentPageInResource) / Double(pagedResource.totalPages - 1)
+        
+        // Calcular progreso total
+        let position = currentPosition
+        let totalPositions = epubBook.totalPositions
+        readingProgress = totalPositions > 0 ? Double(position) / Double(totalPositions - 1) : 0.0
+        
+        // Actualizar texto de progreso
+        updateProgressText()
     }
     
     /// Actualiza el texto de progreso
     private func updateProgressText() {
-        guard totalPages > 0 else {
+        guard let epubBook = epubBook,
+              let pagedResource = epubBook.pagedResources[currentResourceId] else {
             progressText = "0%"
             return
         }
         
         let percentage = Int(readingProgress * 100)
-        progressText = "\(percentage)% • Página \(currentPage + 1)/\(totalPages)"
+        progressText = "\(percentage)% • Página \(currentPageInResource + 1)/\(pagedResource.totalPages)"
     }
     
     /// Guarda el progreso de lectura
@@ -407,5 +420,116 @@ class EPUBViewerViewModel: ObservableObject {
                 "book": bookReference.withUpdatedProgress(readingProgress)
             ]
         )
+    }
+    
+    /// Navega a la siguiente página
+    func nextPage() {
+        guard let epubBook = epubBook,
+              let pagedResource = epubBook.pagedResources[currentResourceId] else { return }
+        
+        if currentPageInResource < pagedResource.totalPages - 1 {
+            // Hay más páginas en el recurso actual
+            currentPageInResource += 1
+            currentPosition += 1
+            updateReadingProgress()
+        } else {
+            // Buscar el siguiente recurso
+            if let nextResourceId = findNextResource() {
+                navigateToResource(nextResourceId, pageIndex: 0)
+            }
+        }
+    }
+    
+    /// Navega a la página anterior
+    func previousPage() {
+        guard let epubBook = epubBook,
+              let pagedResource = epubBook.pagedResources[currentResourceId] else { return }
+        
+        if currentPageInResource > 0 {
+            // Hay páginas anteriores en el recurso actual
+            currentPageInResource -= 1
+            currentPosition -= 1
+            updateReadingProgress()
+        } else {
+            // Buscar el recurso anterior
+            if let previousResourceId = findPreviousResource() {
+                if let previousResource = epubBook.pagedResources[previousResourceId] {
+                    navigateToResource(previousResourceId, pageIndex: previousResource.totalPages - 1)
+                }
+            }
+        }
+    }
+    
+    /// Encuentra el siguiente recurso en el spine
+    private func findNextResource() -> String? {
+        guard let epubBook = epubBook else { return nil }
+        
+        for (index, spineRef) in epubBook.spine.spineReferences.enumerated() {
+            if spineRef.resourceId == currentResourceId {
+                let nextIndex = index + 1
+                if nextIndex < epubBook.spine.spineReferences.count {
+                    return epubBook.spine.spineReferences[nextIndex].resourceId
+                }
+                break
+            }
+        }
+        
+        return nil
+    }
+    
+    /// Encuentra el recurso anterior en el spine
+    private func findPreviousResource() -> String? {
+        guard let epubBook = epubBook else { return nil }
+        
+        for (index, spineRef) in epubBook.spine.spineReferences.enumerated() {
+            if spineRef.resourceId == currentResourceId {
+                let previousIndex = index - 1
+                if previousIndex >= 0 {
+                    return epubBook.spine.spineReferences[previousIndex].resourceId
+                }
+                break
+            }
+        }
+        
+        return nil
+    }
+    
+    /// Navega a un recurso específico y página
+    private func navigateToResource(_ resourceId: String, pageIndex: Int) {
+        guard let epubBook = epubBook,
+              let pagedResource = epubBook.pagedResources[resourceId] else { return }
+        
+        // Calcular la nueva posición
+        var newPosition = 0
+        for spineRef in epubBook.spine.spineReferences {
+            if spineRef.resourceId == resourceId {
+                break
+            }
+            if let resource = epubBook.pagedResources[spineRef.resourceId] {
+                newPosition += resource.totalPages
+            }
+        }
+        newPosition += pageIndex
+        
+        // Actualizar estado
+        currentResourceId = resourceId
+        currentPageInResource = pageIndex
+        currentPosition = newPosition
+        currentPage = findSpineIndex(for: resourceId) ?? 0
+        
+        updateReadingProgress()
+    }
+    
+    /// Encuentra el índice en el spine para un recurso
+    private func findSpineIndex(for resourceId: String) -> Int? {
+        guard let epubBook = epubBook else { return nil }
+        
+        for (index, spineRef) in epubBook.spine.spineReferences.enumerated() {
+            if spineRef.resourceId == resourceId {
+                return index
+            }
+        }
+        
+        return nil
     }
 } 
