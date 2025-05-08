@@ -338,7 +338,7 @@ struct EPUBPageContentView: UIViewRepresentable {
               let resource = epubBook.resources[resourceId],
               let spineIndex = epubBook.spine.spineReferences.firstIndex(where: { $0.resourceId == resourceId }) else { return }
         
-        if let chapterContent = viewModel.getPageContent(for: spineIndex) {
+        if let pageContent = viewModel.getPageContent(for: position) {
             // Obtener la ruta base para recursos como imágenes y CSS
             var baseURL: URL? = nil
             let resourceURL = URL(fileURLWithPath: resource.fullHref)
@@ -377,16 +377,9 @@ struct EPUBPageContentView: UIViewRepresentable {
                         background-color: \(colorToCSSString(viewModel.readerConfig.theme.backgroundColor));
                         margin: var(--margin-vertical) var(--margin-horizontal);
                         padding: 0;
-                        column-width: var(--content-width);
-                        column-gap: calc(2 * var(--margin-horizontal));
-                        column-fill: auto;
                         height: var(--content-height);
-                        width: fit-content;
-                        max-width: none;
-                        overflow-x: hidden;
-                        overflow-y: hidden;
-                        -webkit-column-break-inside: avoid;
-                        page-break-inside: avoid;
+                        width: var(--content-width);
+                        overflow: hidden;
                         text-align: justify;
                         hyphens: auto;
                         -webkit-hyphens: auto;
@@ -394,32 +387,28 @@ struct EPUBPageContentView: UIViewRepresentable {
                     
                     /* Contenedor principal para centrar el contenido */
                     .content-wrapper {
-                        max-width: var(--content-width);
-                        margin: 0 auto;
+                        width: 100%;
+                        height: 100%;
                         position: relative;
+                        overflow: hidden;
                     }
                     
                     img, svg, audio, video {
                         max-height: calc(var(--content-height) * 0.9) !important;
                         max-width: var(--content-width) !important;
                         object-fit: contain;
-                        page-break-inside: avoid;
-                        break-inside: avoid;
                         display: block;
                         margin: 1em auto;
                     }
                     
                     p, div {
-                        max-width: var(--content-width);
+                        width: 100%;
                         word-wrap: break-word;
                         margin: 0 0 1em 0;
-                        break-inside: avoid;
                         text-indent: 1.5em;
                     }
                     
                     h1, h2, h3, h4, h5, h6 {
-                        break-after: avoid;
-                        break-inside: avoid;
                         margin: 2em 0 1em 0;
                         text-align: left;
                         width: 100%;
@@ -440,26 +429,6 @@ struct EPUBPageContentView: UIViewRepresentable {
                         writing-mode: vertical-rl;
                         text-orientation: upright;
                     }
-                    
-                    /* Ajustes para diferentes tamaños de pantalla */
-                    @media screen and (max-width: 480px) {
-                        :root {
-                            --margin-horizontal: 20px;
-                            --margin-vertical: 20px;
-                        }
-                        
-                        body {
-                            font-size: \(max(Int(viewModel.readerConfig.textSize) - 2, 12))px;
-                        }
-                    }
-                    
-                    /* Ajustes para pantallas más grandes */
-                    @media screen and (min-width: 1024px) {
-                        :root {
-                            --margin-horizontal: 60px;
-                            --margin-vertical: 60px;
-                        }
-                    }
                 </style>
                 <script>
                     window.addEventListener('load', function() {
@@ -467,31 +436,24 @@ struct EPUBPageContentView: UIViewRepresentable {
                         const content = document.body.innerHTML;
                         document.body.innerHTML = '<div class="content-wrapper">' + content + '</div>';
                         
-                        // Calcular el número total de columnas
-                        const contentWidth = document.body.scrollWidth;
-                        const pageWidth = \(Int(webView.bounds.width));
-                        const totalColumns = Math.ceil(contentWidth / pageWidth);
-                        
-                        // Desplazarse a la columna correcta
-                        const targetColumn = \(foundPageIndex);
-                        if (targetColumn < totalColumns) {
-                            window.scrollTo({
-                                left: targetColumn * pageWidth,
-                                top: 0,
-                                behavior: 'auto'
-                            });
-                        }
-                        
                         // Ajustar la altura del contenido si es necesario
                         const wrapper = document.querySelector('.content-wrapper');
                         if (wrapper.offsetHeight > window.innerHeight) {
                             document.body.style.height = window.innerHeight + 'px';
                         }
+                        
+                        // Asegurar que el contenido esté centrado verticalmente
+                        const contentHeight = wrapper.offsetHeight;
+                        const viewportHeight = window.innerHeight;
+                        if (contentHeight < viewportHeight) {
+                            const margin = (viewportHeight - contentHeight) / 2;
+                            wrapper.style.marginTop = margin + 'px';
+                        }
                     });
                 </script>
             </head>
             <body>
-                \(chapterContent)
+                \(pageContent)
             </body>
             </html>
             """

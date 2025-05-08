@@ -8,6 +8,54 @@
 import Foundation
 import SwiftUI
 import Combine
+import WebKit
+
+// Estructura para mapear cada página global a su recurso y página interna
+struct GlobalPageIndex {
+    let resourceId: String
+    let pageInResource: Int
+}
+
+// Utilidad para extraer nodos principales del HTML
+fileprivate func extractHtmlBlocks(_ html: String) -> [String] {
+    // Extrae bloques principales: <p>, <div>, <h1-6>, <img>, <hr>, <ul>, <ol>, <li>, <blockquote>, <pre>
+    let pattern = #"(<p[\s\S]*?>[\s\S]*?</p>|<div[\s\S]*?>[\s\S]*?</div>|<h[1-6][^>]*>[\s\S]*?</h[1-6]>|<img[\s\S]*?>|<hr[\s\S]*?>|<ul[\s\S]*?>[\s\S]*?</ul>|<ol[\s\S]*?>[\s\S]*?</ol>|<li[\s\S]*?>[\s\S]*?</li>|<blockquote[\s\S]*?>[\s\S]*?</blockquote>|<pre[\s\S]*?>[\s\S]*?</pre>)"#
+    do {
+        let regex = try NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        let nsString = html as NSString
+        let matches = regex.matches(in: html, options: [], range: NSRange(location: 0, length: nsString.length))
+        var blocks: [String] = []
+        var lastEnd = 0
+        for match in matches {
+            let range = match.range
+            // Agregar texto entre bloques como <p>
+            if range.location > lastEnd {
+                let textRange = NSRange(location: lastEnd, length: range.location - lastEnd)
+                let text = nsString.substring(with: textRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty {
+                    blocks.append("<p>\(text)</p>")
+                }
+            }
+            let block = nsString.substring(with: range)
+            blocks.append(block)
+            lastEnd = range.location + range.length
+        }
+        // Agregar texto restante
+        if lastEnd < nsString.length {
+            let textRange = NSRange(location: lastEnd, length: nsString.length - lastEnd)
+            let text = nsString.substring(with: textRange).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                blocks.append("<p>\(text)</p>")
+            }
+        }
+        return blocks
+    } catch {
+        // Si hay error, dividir por párrafos
+        return html.components(separatedBy: "</p>")
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { $0 + "</p>" }
+    }
+}
 
 class EPUBViewerViewModel: ObservableObject {
     // Referencia al libro completo
@@ -34,8 +82,17 @@ class EPUBViewerViewModel: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     
     @Published var currentPosition: Int = 0
-    @Published var currentResourceId: String = ""
+    @Published var currentResourceId: String? = nil
     @Published var currentPageInResource: Int = 0
+    
+    // Caché de páginas por recurso
+    private var pageCache: [String: [String]] = [:]
+    
+    // Índice global de páginas
+    private var globalPageIndex: [GlobalPageIndex] = []
+    
+    // Array global de todas las páginas del libro
+    private var allPages: [String] = []
     
     init(book: CompleteBook) {
         self.bookReference = book
@@ -64,28 +121,17 @@ class EPUBViewerViewModel: ObservableObject {
             isLoading = false
             return
         }
-        
         isLoading = true
-        
         do {
             let book = try await EPUBService.parseEPUB(at: localURL)
-            
             await MainActor.run {
                 self.epubBook = book
-                self.totalPages = book.spine.spineReferences.count
                 self.tableOfContents = book.tableOfContents
-                
-                // Restaurar progreso si existe
-                if let lastPageOffset = bookReference.lastPageOffsetPCT, lastPageOffset > 0 {
-                    let estimatedPage = Int(lastPageOffset * Double(self.totalPages))
-                    self.currentPage = max(0, min(estimatedPage, self.totalPages - 1))
-                }
-                
-                // Cargar contenido de los capítulos
+                // Cargar y paginar todo el libro
                 Task {
                     await self.preloadChapters()
                     await MainActor.run {
-                        self.updateCurrentChapter()
+                        self.paginateAllContent()
                         self.isLoading = false
                     }
                 }
@@ -354,32 +400,121 @@ class EPUBViewerViewModel: ObservableObject {
     
     // MARK: - Contenido y progreso
     
-    /// Obtiene el contenido HTML para una página específica
-    func getPageContent(for pageIndex: Int) -> String? {
-        guard let epubBook = epubBook, pageIndex < epubBook.spine.spineReferences.count else { return nil }
+    /// Construye el índice global de páginas
+    private func buildGlobalPageIndex() {
+        globalPageIndex = []
+        totalPages = 0
+        guard let epubBook = epubBook else { return }
         
-        let spineRef = epubBook.spine.spineReferences[pageIndex]
+        for spineRef in epubBook.spine.spineReferences {
+            // Paginar el recurso
+            if let resource = epubBook.resources[spineRef.resourceId],
+               let data = resource.data,
+               let content = String(data: data, encoding: .utf8) {
+                let processedContent = processHTMLContent(content, resourceId: spineRef.resourceId)
+                let paginator = SmartPagination(
+                    content: processedContent,
+                    fontSize: CGFloat(readerConfig.textSize),
+                    lineHeight: readerConfig.lineHeight,
+                    pageWidth: UIScreen.main.bounds.width,
+                    pageHeight: UIScreen.main.bounds.height,
+                    horizontalMargin: 40,
+                    verticalMargin: 40
+                )
+                let pages = paginator.calculatePages()
+                // Guardar en caché
+                pageCache[spineRef.resourceId] = pages
+                // Agregar al índice global
+                for i in 0..<pages.count {
+                    globalPageIndex.append(GlobalPageIndex(resourceId: spineRef.resourceId, pageInResource: i))
+                }
+                totalPages += pages.count
+            }
+        }
+    }
+    
+    /// Pagina todo el contenido del libro
+    private func paginateAllContent() {
+        guard let epubBook = epubBook else { return }
         
-        // Intentar recuperar del caché
-        if let cachedContent = chaptersContent[spineRef.resourceId] {
-            return cachedContent
+        // Limpiar cachés
+        pageCache.removeAll()
+        globalPageIndex.removeAll()
+        allPages.removeAll()
+        
+        var currentGlobalPage = 0
+        
+        // Procesar cada recurso en el spine
+        for spineRef in epubBook.spine.spineReferences {
+            guard let resource = epubBook.resources[spineRef.resourceId],
+                  let content = chaptersContent[spineRef.resourceId] else { continue }
+            
+            // Dividir el contenido en bloques HTML
+            let blocks = extractHtmlBlocks(content)
+            
+            // Calcular el número de páginas basado en el tamaño del contenido
+            let estimatedPages = max(1, blocks.count / 10) // Aproximadamente 10 bloques por página
+            
+            // Dividir los bloques en páginas
+            var pages: [String] = []
+            var currentPageBlocks: [String] = []
+            var currentPageSize = 0
+            let maxPageSize = 5000 // Tamaño máximo aproximado por página
+            
+            for block in blocks {
+                let blockSize = block.count
+                
+                if currentPageSize + blockSize > maxPageSize && !currentPageBlocks.isEmpty {
+                    // Crear una nueva página con los bloques actuales
+                    let pageContent = currentPageBlocks.joined(separator: "\n")
+                    pages.append(pageContent)
+                    
+                    // Actualizar el índice global
+                    globalPageIndex.append(GlobalPageIndex(resourceId: spineRef.resourceId, pageInResource: pages.count - 1))
+                    
+                    // Limpiar para la siguiente página
+                    currentPageBlocks = []
+                    currentPageSize = 0
+                }
+                
+                currentPageBlocks.append(block)
+                currentPageSize += blockSize
+            }
+            
+            // Agregar la última página si hay bloques pendientes
+            if !currentPageBlocks.isEmpty {
+                let pageContent = currentPageBlocks.joined(separator: "\n")
+                pages.append(pageContent)
+                globalPageIndex.append(GlobalPageIndex(resourceId: spineRef.resourceId, pageInResource: pages.count - 1))
+            }
+            
+            // Guardar las páginas en el caché
+            pageCache[spineRef.resourceId] = pages
+            allPages.append(contentsOf: pages)
         }
         
-        // Si no está en caché, cargarlo
-        if let resource = epubBook.resources[spineRef.resourceId], 
-           let data = resource.data,
-           let content = String(data: data, encoding: .utf8) {
-            let processedContent = processHTMLContent(content, resourceId: spineRef.resourceId)
-            chaptersContent[spineRef.resourceId] = processedContent
-            return processedContent
-        }
+        // Actualizar el total de páginas
+        totalPages = allPages.count
+    }
+    
+    /// Obtiene el contenido de una página específica
+    func getPageContent(for position: Int) -> String? {
+        guard position >= 0 && position < globalPageIndex.count else { return nil }
         
-        return nil
+        let pageIndex = globalPageIndex[position]
+        return pageCache[pageIndex.resourceId]?[pageIndex.pageInResource]
+    }
+    
+    /// Actualiza la configuración del lector
+    func updateReaderConfig(_ config: EPUBReaderConfig) {
+        readerConfig = config
+        paginateAllContent()
     }
     
     /// Actualiza el progreso de lectura basado en la posición actual
     func updateReadingProgress() {
         guard let epubBook = epubBook,
+              let currentResourceId = currentResourceId,
               let pagedResource = epubBook.pagedResources[currentResourceId],
               pagedResource.totalPages > 0 else {
             readingProgress = 0.0
@@ -401,6 +536,7 @@ class EPUBViewerViewModel: ObservableObject {
     /// Actualiza el texto de progreso
     private func updateProgressText() {
         guard let epubBook = epubBook,
+              let currentResourceId = currentResourceId,
               let pagedResource = epubBook.pagedResources[currentResourceId] else {
             progressText = "0%"
             return
@@ -425,6 +561,7 @@ class EPUBViewerViewModel: ObservableObject {
     /// Navega a la siguiente página
     func nextPage() {
         guard let epubBook = epubBook,
+              let currentResourceId = currentResourceId,
               let pagedResource = epubBook.pagedResources[currentResourceId] else { return }
         
         if currentPageInResource < pagedResource.totalPages - 1 {
@@ -443,6 +580,7 @@ class EPUBViewerViewModel: ObservableObject {
     /// Navega a la página anterior
     func previousPage() {
         guard let epubBook = epubBook,
+              let currentResourceId = currentResourceId,
               let pagedResource = epubBook.pagedResources[currentResourceId] else { return }
         
         if currentPageInResource > 0 {
@@ -532,4 +670,174 @@ class EPUBViewerViewModel: ObservableObject {
         
         return nil
     }
+}
+
+// Estructura para manejar la paginación inteligente
+struct SmartPagination {
+    let content: String
+    let fontSize: CGFloat
+    let lineHeight: CGFloat
+    let pageWidth: CGFloat
+    let pageHeight: CGFloat
+    let horizontalMargin: CGFloat
+    let verticalMargin: CGFloat
+    
+    var contentWidth: CGFloat {
+        pageWidth - (2 * horizontalMargin)
+    }
+    
+    var contentHeight: CGFloat {
+        pageHeight - (2 * verticalMargin)
+    }
+    
+    func calculatePages() -> [String] {
+        let blocks = extractHtmlBlocks(content)
+        var pages: [String] = []
+        var currentPage = ""
+        var currentHeight: CGFloat = 0
+        let lineHeightPx = fontSize * lineHeight
+        let charsPerLine = max(10, Int(contentWidth / (fontSize * 0.6)))
+        let maxLinesPerPage = Int(contentHeight / lineHeightPx)
+        
+        for block in blocks {
+            let text = block.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            let blockLines = estimateLines(for: text, charsPerLine: charsPerLine)
+            let blockHeight = CGFloat(blockLines) * lineHeightPx
+            
+            if blockHeight <= contentHeight {
+                // El bloque cabe entero en una página
+                if currentHeight + blockHeight <= contentHeight {
+                    currentPage += block
+                    currentHeight += blockHeight
+                } else {
+                    // Guardar la página actual y empezar una nueva
+                    if !currentPage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        pages.append(currentPage)
+                    }
+                    currentPage = block
+                    currentHeight = blockHeight
+                }
+            } else {
+                // El bloque es más grande que una página, dividirlo en líneas y repartirlas
+                let lines = splitTextIntoLines(text, charsPerLine: charsPerLine)
+                var lineIndex = 0
+                while lineIndex < lines.count {
+                    let lineBlock = "<p>" + lines[lineIndex] + "</p>"
+                    if currentHeight + lineHeightPx > contentHeight {
+                        if !currentPage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            pages.append(currentPage)
+                        }
+                        currentPage = ""
+                        currentHeight = 0
+                    }
+                    currentPage += lineBlock
+                    currentHeight += lineHeightPx
+                    lineIndex += 1
+                }
+            }
+        }
+        if !currentPage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            pages.append(currentPage)
+        }
+        // Eliminar páginas vacías o solo con espacios
+        return pages.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+    
+    private func estimateLines(for text: String, charsPerLine: Int) -> Int {
+        let words = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        var lines = 0
+        var currentLineChars = 0
+        for word in words {
+            if currentLineChars + word.count + 1 > charsPerLine {
+                lines += 1
+                currentLineChars = word.count
+            } else {
+                currentLineChars += word.count + 1
+            }
+        }
+        if currentLineChars > 0 { lines += 1 }
+        return max(1, lines)
+    }
+    
+    private func splitTextIntoLines(_ text: String, charsPerLine: Int) -> [String] {
+        let words = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        var lines: [String] = []
+        var currentLine = ""
+        for word in words {
+            if currentLine.count + word.count + 1 > charsPerLine {
+                if !currentLine.isEmpty {
+                    lines.append(currentLine)
+                }
+                currentLine = word
+            } else {
+                if !currentLine.isEmpty {
+                    currentLine += " "
+                }
+                currentLine += word
+            }
+        }
+        if !currentLine.isEmpty {
+            lines.append(currentLine)
+        }
+        return lines
+    }
+}
+
+// Función para calcular las posiciones y páginas para un recurso HTML
+func calculatePositions(for resource: EPUBResource, 
+                       spine: EPUBSpine,
+                       totalBytes: Int) -> EPUBPagedResource? {
+    guard let data = resource.data,
+          let content = String(data: data, encoding: .utf8) else {
+        return nil
+    }
+    
+    // Configuración de paginación
+    let pageWidth: CGFloat = UIScreen.main.bounds.width
+    let pageHeight: CGFloat = UIScreen.main.bounds.height
+    let horizontalMargin: CGFloat = 40
+    let verticalMargin: CGFloat = 40
+    let fontSize: CGFloat = 16 // Tamaño de fuente base
+    let lineHeight: CGFloat = 1.5
+    
+    // Crear el paginador inteligente
+    let paginator = SmartPagination(
+        content: content,
+        fontSize: fontSize,
+        lineHeight: lineHeight,
+        pageWidth: pageWidth,
+        pageHeight: pageHeight,
+        horizontalMargin: horizontalMargin,
+        verticalMargin: verticalMargin
+    )
+    
+    // Calcular las páginas
+    let pages = paginator.calculatePages()
+    
+    // Crear las posiciones
+    var positions: [EPUBPosition] = []
+    for (index, _) in pages.enumerated() {
+        let progression = Double(index) / Double(pages.count - 1)
+        let totalProgression = Double(resource.data?.count ?? 0) / Double(totalBytes)
+        
+        positions.append(EPUBPosition(
+            resourceId: resource.resourceId,
+            progression: progression,
+            totalProgression: totalProgression,
+            pageIndex: index,
+            totalPages: pages.count
+        ))
+    }
+    
+    // Determinar si es RTL o vertical
+    let isRTL = spine.isRightToLeft
+    let isVertical = content.contains("writing-mode: vertical")
+    
+    return EPUBPagedResource(
+        resourceId: resource.resourceId,
+        totalPages: pages.count,
+        positions: positions,
+        isRTL: isRTL,
+        isVertical: isVertical
+    )
 } 
