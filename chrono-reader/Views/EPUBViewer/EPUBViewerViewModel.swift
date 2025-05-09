@@ -425,7 +425,7 @@ class EPUBViewerViewModel: ObservableObject {
                 // Guardar en caché
                 pageCache[spineRef.resourceId] = pages
                 // Agregar al índice global
-                for i in 0..<pages.count {
+                for (i, _) in pages.enumerated() {
                     globalPageIndex.append(GlobalPageIndex(resourceId: spineRef.resourceId, pageInResource: i))
                 }
                 totalPages += pages.count
@@ -449,46 +449,43 @@ class EPUBViewerViewModel: ObservableObject {
             guard let resource = epubBook.resources[spineRef.resourceId],
                   let content = chaptersContent[spineRef.resourceId] else { continue }
             
-            // Dividir el contenido en bloques HTML
-            let blocks = extractHtmlBlocks(content)
-            
-            // Calcular el número de páginas basado en el tamaño del contenido
-            let estimatedPages = max(1, blocks.count / 10) // Aproximadamente 10 bloques por página
-            
-            // Dividir los bloques en páginas
+            let maxPageSize = 5000 // Tamaño máximo aproximado por página
+            // Preprocesar bloques grandes: dividirlos en sub-bloques de máximo maxPageSize caracteres
+            var processedBlocks: [String] = []
+            for block in extractHtmlBlocks(content) {
+                if block.count > maxPageSize {
+                    var start = block.startIndex
+                    while start < block.endIndex {
+                        let end = block.index(start, offsetBy: maxPageSize, limitedBy: block.endIndex) ?? block.endIndex
+                        let subBlock = String(block[start..<end])
+                        processedBlocks.append(subBlock)
+                        start = end
+                    }
+                } else {
+                    processedBlocks.append(block)
+                }
+            }
+            // Usar processedBlocks en vez de blocks para la paginación
             var pages: [String] = []
             var currentPageBlocks: [String] = []
             var currentPageSize = 0
-            let maxPageSize = 5000 // Tamaño máximo aproximado por página
-            
-            for block in blocks {
+            for block in processedBlocks {
                 let blockSize = block.count
-                
                 if currentPageSize + blockSize > maxPageSize && !currentPageBlocks.isEmpty {
-                    // Crear una nueva página con los bloques actuales
                     let pageContent = currentPageBlocks.joined(separator: "\n")
                     pages.append(pageContent)
-                    
-                    // Actualizar el índice global
                     globalPageIndex.append(GlobalPageIndex(resourceId: spineRef.resourceId, pageInResource: pages.count - 1))
-                    
-                    // Limpiar para la siguiente página
                     currentPageBlocks = []
                     currentPageSize = 0
                 }
-                
                 currentPageBlocks.append(block)
-                currentPageSize += blockSize
+                currentPageSize += blockSize;
             }
-            
-            // Agregar la última página si hay bloques pendientes
             if !currentPageBlocks.isEmpty {
                 let pageContent = currentPageBlocks.joined(separator: "\n")
                 pages.append(pageContent)
                 globalPageIndex.append(GlobalPageIndex(resourceId: spineRef.resourceId, pageInResource: pages.count - 1))
             }
-            
-            // Guardar las páginas en el caché
             pageCache[spineRef.resourceId] = pages
             allPages.append(contentsOf: pages)
         }

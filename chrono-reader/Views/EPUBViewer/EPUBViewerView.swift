@@ -349,18 +349,9 @@ struct EPUBPageContentView: UIViewRepresentable {
             <!DOCTYPE html>
             <html>
             <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+                <meta charset=\"utf-8\">
+                <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">
                 <style>
-                    :root {
-                        --page-width: \(Int(webView.bounds.width))px;
-                        --page-height: \(Int(webView.bounds.height))px;
-                        --margin-horizontal: 40px;
-                        --margin-vertical: 40px;
-                        --content-width: calc(var(--page-width) - (2 * var(--margin-horizontal)));
-                        --content-height: calc(var(--page-height) - (2 * var(--margin-vertical)));
-                    }
-                    
                     html {
                         width: 100%;
                         height: 100%;
@@ -368,92 +359,21 @@ struct EPUBPageContentView: UIViewRepresentable {
                         padding: 0;
                         overflow: hidden;
                     }
-                    
                     body {
-                        font-family: \(viewModel.readerConfig.fontName), -apple-system, sans-serif;
-                        font-size: \(Int(viewModel.readerConfig.textSize))px;
-                        line-height: \(viewModel.readerConfig.lineHeight);
-                        color: \(colorToCSSString(viewModel.readerConfig.theme.textColor));
                         background-color: \(colorToCSSString(viewModel.readerConfig.theme.backgroundColor));
+                        color: \(colorToCSSString(viewModel.readerConfig.theme.textColor));
                         margin: var(--margin-vertical) var(--margin-horizontal);
                         padding: 0;
-                        height: var(--content-height);
                         width: var(--content-width);
-                        overflow: hidden;
                         text-align: justify;
                         hyphens: auto;
                         -webkit-hyphens: auto;
-                    }
-                    
-                    /* Contenedor principal para centrar el contenido */
-                    .content-wrapper {
-                        width: 100%;
-                        height: 100%;
-                        position: relative;
-                        overflow: hidden;
-                    }
-                    
-                    img, svg, audio, video {
-                        max-height: calc(var(--content-height) * 0.9) !important;
-                        max-width: var(--content-width) !important;
-                        object-fit: contain;
                         display: block;
-                        margin: 1em auto;
-                    }
-                    
-                    p, div {
-                        width: 100%;
-                        word-wrap: break-word;
-                        margin: 0 0 1em 0;
-                        text-indent: 1.5em;
-                    }
-                    
-                    h1, h2, h3, h4, h5, h6 {
-                        margin: 2em 0 1em 0;
-                        text-align: left;
-                        width: 100%;
-                    }
-                    
-                    a {
-                        color: \(colorToCSSString(viewModel.readerConfig.theme.textColor));
-                        text-decoration: none;
-                    }
-                    
-                    [dir="rtl"] {
-                        direction: rtl;
-                        text-align: right;
-                    }
-                    
-                    [style*="writing-mode: vertical-rl"],
-                    [style*="writing-mode: vertical-lr"] {
-                        writing-mode: vertical-rl;
-                        text-orientation: upright;
                     }
                 </style>
-                <script>
-                    window.addEventListener('load', function() {
-                        // Envolver el contenido en un div para centrarlo
-                        const content = document.body.innerHTML;
-                        document.body.innerHTML = '<div class="content-wrapper">' + content + '</div>';
-                        
-                        // Ajustar la altura del contenido si es necesario
-                        const wrapper = document.querySelector('.content-wrapper');
-                        if (wrapper.offsetHeight > window.innerHeight) {
-                            document.body.style.height = window.innerHeight + 'px';
-                        }
-                        
-                        // Asegurar que el contenido esté centrado verticalmente
-                        const contentHeight = wrapper.offsetHeight;
-                        const viewportHeight = window.innerHeight;
-                        if (contentHeight < viewportHeight) {
-                            const margin = (viewportHeight - contentHeight) / 2;
-                            wrapper.style.marginTop = margin + 'px';
-                        }
-                    });
-                </script>
             </head>
             <body>
-                \(pageContent)
+                <div class=\"content-wrapper\">\(pageContent)</div>
             </body>
             </html>
             """
