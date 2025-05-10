@@ -450,14 +450,24 @@ class EPUBViewerViewModel: ObservableObject {
                   let content = chaptersContent[spineRef.resourceId] else { continue }
             
             let maxPageSize = 5000 // Tamaño máximo aproximado por página
-            // Preprocesar bloques grandes: dividirlos en sub-bloques de máximo maxPageSize caracteres
+            // Preprocesar solo los bloques <p> grandes: dividirlos en sub-bloques de máximo 800 caracteres sin cortar palabras
+            let maxParagraphSize = 800
             var processedBlocks: [String] = []
             for block in extractHtmlBlocks(content) {
-                if block.count > maxPageSize {
+                // Solo dividir si es un <p> grande
+                if block.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("<p") && block.count > maxParagraphSize {
                     var start = block.startIndex
                     while start < block.endIndex {
-                        let end = block.index(start, offsetBy: maxPageSize, limitedBy: block.endIndex) ?? block.endIndex
-                        let subBlock = String(block[start..<end])
+                        let end = block.index(start, offsetBy: maxParagraphSize, limitedBy: block.endIndex) ?? block.endIndex
+                        var subBlock = String(block[start..<end])
+                        // No cortar palabras si no es el final
+                        if end < block.endIndex, let lastSpace = subBlock.lastIndex(of: " ") {
+                            let safeEnd = block.index(start, offsetBy: subBlock.distance(from: subBlock.startIndex, to: lastSpace))
+                            subBlock = String(block[start..<safeEnd])
+                            processedBlocks.append(subBlock)
+                            start = block.index(after: safeEnd)
+                            continue
+                        }
                         processedBlocks.append(subBlock)
                         start = end
                     }
@@ -465,12 +475,18 @@ class EPUBViewerViewModel: ObservableObject {
                     processedBlocks.append(block)
                 }
             }
-            // Usar processedBlocks en vez de blocks para la paginación
+            // Paginación estándar con los bloques procesados
             var pages: [String] = []
             var currentPageBlocks: [String] = []
             var currentPageSize = 0
             for block in processedBlocks {
                 let blockSize = block.count
+                if blockSize > maxPageSize {
+                    let pageContent = block
+                    pages.append(pageContent)
+                    globalPageIndex.append(GlobalPageIndex(resourceId: spineRef.resourceId, pageInResource: pages.count - 1))
+                    continue
+                }
                 if currentPageSize + blockSize > maxPageSize && !currentPageBlocks.isEmpty {
                     let pageContent = currentPageBlocks.joined(separator: "\n")
                     pages.append(pageContent)
@@ -694,49 +710,82 @@ struct SmartPagination {
         var currentHeight: CGFloat = 0
         let lineHeightPx = fontSize * lineHeight
         let charsPerLine = max(10, Int(contentWidth / (fontSize * 0.6)))
-        let maxLinesPerPage = Int(contentHeight / lineHeightPx)
         
         for block in blocks {
             let text = block.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
             let blockLines = estimateLines(for: text, charsPerLine: charsPerLine)
             let blockHeight = CGFloat(blockLines) * lineHeightPx
             
-            if blockHeight <= contentHeight {
-                // El bloque cabe entero en una página
+            // Si el bloque es más grande que una página, dividirlo
+            if blockHeight > contentHeight {
+                let lines = splitTextIntoLines(text, charsPerLine: charsPerLine)
+                var remainingLines = lines
+                
+                while !remainingLines.isEmpty {
+                    var pageLines: [String] = []
+                    var pageHeight: CGFloat = 0
+                    
+                    // Llenar la página actual
+                    while !remainingLines.isEmpty && pageHeight + lineHeightPx <= contentHeight {
+                        let line = remainingLines.removeFirst()
+                        pageLines.append(line)
+                        pageHeight += lineHeightPx
+                    }
+                    
+                    // Si quedan líneas y la página está casi llena, mover la última línea a la siguiente página
+                    if !remainingLines.isEmpty && pageHeight + lineHeightPx > contentHeight * 0.9 {
+                        if let lastLine = pageLines.popLast() {
+                            remainingLines.insert(lastLine, at: 0)
+                        }
+                    }
+                    
+                    // Crear la página actual
+                    let pageContent = pageLines.map { "<p>\($0)</p>" }.joined(separator: "\n")
+                    if !pageContent.isEmpty {
+                        pages.append(pageContent)
+                    }
+                }
+            } else {
+                // Si el bloque cabe en la página actual
                 if currentHeight + blockHeight <= contentHeight {
                     currentPage += block
                     currentHeight += blockHeight
                 } else {
-                    // Guardar la página actual y empezar una nueva
-                    if !currentPage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        pages.append(currentPage)
-                    }
-                    currentPage = block
-                    currentHeight = blockHeight
-                }
-            } else {
-                // El bloque es más grande que una página, dividirlo en líneas y repartirlas
-                let lines = splitTextIntoLines(text, charsPerLine: charsPerLine)
-                var lineIndex = 0
-                while lineIndex < lines.count {
-                    let lineBlock = "<p>" + lines[lineIndex] + "</p>"
-                    if currentHeight + lineHeightPx > contentHeight {
+                    // Si el bloque no cabe y la página actual está casi llena, mover todo el bloque a la siguiente página
+                    if currentHeight > contentHeight * 0.9 {
                         if !currentPage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             pages.append(currentPage)
                         }
-                        currentPage = ""
-                        currentHeight = 0
+                        currentPage = block
+                        currentHeight = blockHeight
+                    } else {
+                        // Si la página actual no está muy llena, dividir el bloque
+                        let lines = splitTextIntoLines(text, charsPerLine: charsPerLine)
+                        var remainingLines = lines
+                        
+                        // Llenar la página actual
+                        while !remainingLines.isEmpty && currentHeight + lineHeightPx <= contentHeight {
+                            let line = remainingLines.removeFirst()
+                            currentPage += "<p>\(line)</p>\n"
+                            currentHeight += lineHeightPx
+                        }
+                        
+                        // Mover las líneas restantes a la siguiente página
+                        if !remainingLines.isEmpty {
+                            pages.append(currentPage)
+                            currentPage = remainingLines.map { "<p>\($0)</p>" }.joined(separator: "\n")
+                            currentHeight = CGFloat(remainingLines.count) * lineHeightPx
+                        }
                     }
-                    currentPage += lineBlock
-                    currentHeight += lineHeightPx
-                    lineIndex += 1
                 }
             }
         }
+        
+        // Agregar la última página si tiene contenido
         if !currentPage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             pages.append(currentPage)
         }
-        // Eliminar páginas vacías o solo con espacios
+        
         return pages.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
     
@@ -760,6 +809,7 @@ struct SmartPagination {
         let words = text.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
         var lines: [String] = []
         var currentLine = ""
+        
         for word in words {
             if currentLine.count + word.count + 1 > charsPerLine {
                 if !currentLine.isEmpty {
@@ -773,9 +823,11 @@ struct SmartPagination {
                 currentLine += word
             }
         }
+        
         if !currentLine.isEmpty {
             lines.append(currentLine)
         }
+        
         return lines
     }
 }

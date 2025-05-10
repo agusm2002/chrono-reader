@@ -296,13 +296,9 @@ struct EPUBPageContentView: UIViewRepresentable {
     
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView()
-        webView.navigationDelegate = context.coordinator
         webView.scrollView.isScrollEnabled = false
-        
-        // Configuración para paginación
         webView.scrollView.isPagingEnabled = true
         webView.scrollView.bounces = false
-        
         // Configurar el viewport para que ocupe todo el ancho
         let viewportScript = WKUserScript(
             source: "var meta = document.createElement('meta'); meta.setAttribute('name', 'viewport'); meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'); document.getElementsByTagName('head')[0].appendChild(meta);",
@@ -310,18 +306,15 @@ struct EPUBPageContentView: UIViewRepresentable {
             forMainFrameOnly: true
         )
         webView.configuration.userContentController.addUserScript(viewportScript)
-        
         return webView
     }
     
     func updateUIView(_ webView: WKWebView, context: Context) {
         guard let epubBook = viewModel.epubBook else { return }
-        
         // Encontrar el recurso y página correspondiente a esta posición
         var currentPosition = 0
         var foundResourceId: String? = nil
         var foundPageIndex = 0
-        
         for spineRef in epubBook.spine.spineReferences {
             if let resource = epubBook.pagedResources[spineRef.resourceId] {
                 if position < currentPosition + resource.totalPages {
@@ -332,17 +325,19 @@ struct EPUBPageContentView: UIViewRepresentable {
                 currentPosition += resource.totalPages
             }
         }
-        
         guard let resourceId = foundResourceId,
               let spineRef = epubBook.spine.spineReferences.first(where: { $0.resourceId == resourceId }),
               let resource = epubBook.resources[resourceId],
               let spineIndex = epubBook.spine.spineReferences.firstIndex(where: { $0.resourceId == resourceId }) else { return }
-        
         if let pageContent = viewModel.getPageContent(for: position) {
             // Obtener la ruta base para recursos como imágenes y CSS
             var baseURL: URL? = nil
             let resourceURL = URL(fileURLWithPath: resource.fullHref)
             baseURL = resourceURL.deletingLastPathComponent()
+            
+            // Obtener las dimensiones de la pantalla
+            let screenWidth = UIScreen.main.bounds.width
+            let screenHeight = UIScreen.main.bounds.height
             
             // Crear HTML base con estilos que se adaptan a la configuración
             let baseHTML = """
@@ -352,6 +347,15 @@ struct EPUBPageContentView: UIViewRepresentable {
                 <meta charset=\"utf-8\">
                 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no\">
                 <style>
+                    :root {
+                        --page-width: \(screenWidth)px;
+                        --page-height: \(screenHeight)px;
+                        --margin-horizontal: 40px;
+                        --margin-vertical: 40px;
+                        --content-width: calc(var(--page-width) - (2 * var(--margin-horizontal)));
+                        --content-height: calc(var(--page-height) - (2 * var(--margin-vertical)));
+                    }
+                    
                     html {
                         width: 100%;
                         height: 100%;
@@ -359,16 +363,63 @@ struct EPUBPageContentView: UIViewRepresentable {
                         padding: 0;
                         overflow: hidden;
                     }
+                    
                     body {
                         background-color: \(colorToCSSString(viewModel.readerConfig.theme.backgroundColor));
                         color: \(colorToCSSString(viewModel.readerConfig.theme.textColor));
-                        margin: var(--margin-vertical) var(--margin-horizontal);
+                        margin: 0;
                         padding: 0;
+                        width: 100%;
+                        height: 100%;
+                        overflow: hidden;
+                    }
+                    
+                    .content-wrapper {
                         width: var(--content-width);
+                        height: var(--content-height);
+                        margin: var(--margin-vertical) var(--margin-horizontal);
+                        column-width: var(--content-width);
+                        column-gap: 0;
+                        column-fill: auto;
                         text-align: justify;
                         hyphens: auto;
                         -webkit-hyphens: auto;
-                        display: block;
+                        position: relative;
+                    }
+                    
+                    p {
+                        margin: 0;
+                        padding: 0;
+                        line-height: var(--line-height);
+                        text-align: justify;
+                        orphans: 2;
+                        widows: 2;
+                        break-inside: avoid;
+                        page-break-inside: avoid;
+                        -webkit-column-break-inside: avoid;
+                    }
+                    
+                    /* Reglas para el corte de palabras */
+                    .content-wrapper {
+                        word-wrap: break-word;
+                        overflow-wrap: break-word;
+                        word-break: break-word;
+                        -webkit-hyphenate-character: auto;
+                        hyphenate-character: auto;
+                    }
+                    
+                    /* Asegurar que los párrafos no se corten en lugares inapropiados */
+                    p {
+                        break-after: auto;
+                        break-before: auto;
+                        page-break-after: auto;
+                        page-break-before: auto;
+                    }
+                    
+                    /* Forzar el corte de palabras cuando sea necesario */
+                    .content-wrapper {
+                        overflow: hidden;
+                        position: relative;
                     }
                 </style>
             </head>
@@ -377,7 +428,6 @@ struct EPUBPageContentView: UIViewRepresentable {
             </body>
             </html>
             """
-            
             // Cargar el HTML en el webView
             if let baseURL = baseURL {
                 webView.loadHTMLString(baseHTML, baseURL: baseURL)
@@ -387,38 +437,14 @@ struct EPUBPageContentView: UIViewRepresentable {
         }
     }
     
-    // Convertir SwiftUI Color a string CSS
     private func colorToCSSString(_ color: Color) -> String {
         let uiColor = UIColor(color)
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
         var alpha: CGFloat = 0
-        
         uiColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        
         return "rgba(\(Int(red * 255)), \(Int(green * 255)), \(Int(blue * 255)), \(alpha))"
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-    
-    class Coordinator: NSObject, WKNavigationDelegate {
-        var parent: EPUBPageContentView
-        
-        init(_ parent: EPUBPageContentView) {
-            self.parent = parent
-        }
-        
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Actualizar la vista cuando se carga el contenido
-            DispatchQueue.main.async {
-                if self.parent.position == self.parent.viewModel.currentPosition {
-                    self.parent.viewModel.updateReadingProgress()
-                }
-            }
-        }
     }
 }
 
