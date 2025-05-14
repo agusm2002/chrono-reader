@@ -224,8 +224,30 @@ struct BookItemView: View {
                 animateTransition = false
             }
         }) {
-            EPUBViewerView(book: book)
-                .transition(.opacity)
+            Group {
+                if let url = book.metadata.localURL {
+                    EPUBReaderContainer(url: url, isPresented: $isShowingEPUBViewer)
+                } else {
+                    VStack(spacing: 20) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 50))
+                            .foregroundColor(.red)
+                        
+                        Text("No se encontró el archivo del libro")
+                            .font(.title2)
+                            .bold()
+                        
+                        Button("Cerrar") {
+                            isShowingEPUBViewer = false
+                        }
+                        .padding()
+                        .background(Color.appTheme())
+                        .foregroundColor(.white)
+                        .cornerRadius(10)
+                    }
+                    .padding()
+                }
+            }
         }
         // Audio Player
         .fullScreenCover(isPresented: $isShowingAudioPlayer, onDismiss: {
@@ -529,5 +551,69 @@ struct BookItemView: View {
         }
         
         return UIImage(cgImage: downsampledImage)
+    }
+}
+
+struct EPUBReaderContainer: View {
+    let url: URL
+    @Binding var isPresented: Bool
+    @State private var epubBook: EPUBBook?
+    @State private var isLoading = true
+    @State private var error: Error?
+    
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("Cargando libro...")
+            } else if let error = error {
+                VStack(spacing: 20) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 50))
+                        .foregroundColor(.red)
+                    
+                    Text("Error al cargar el libro")
+                        .font(.title2)
+                        .bold()
+                    
+                    Text(error.localizedDescription)
+                        .font(.body)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal)
+                    
+                    Button("Cerrar") {
+                        isPresented = false
+                    }
+                    .padding()
+                    .background(Color.appTheme())
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                }
+                .padding()
+            } else if let epubBook = epubBook {
+                EPUBBasicReaderView(document: epubBook)
+                    .transition(.opacity)
+            }
+        }
+        .onAppear {
+            loadBook()
+        }
+    }
+    
+    private func loadBook() {
+        Task {
+            do {
+                let book = try await EPUBService.parseEPUB(at: url)
+                await MainActor.run {
+                    self.epubBook = book
+                    self.isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = error
+                    self.isLoading = false
+                }
+            }
+        }
     }
 }

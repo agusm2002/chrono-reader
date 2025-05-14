@@ -204,27 +204,4 @@ enum EPUBReaderTheme {
 }
 
 // MARK: - Utilidades de EPUB
-/// Parser para archivos EPUB
-class EPUBParser {
-    static func parseEPUB(url: URL) async throws -> EPUBBook {
-        // La implementación real del parser sería aquí
-        // Por ahora, devolvemos un libro de ejemplo para la estructura
-        return EPUBBook(
-            title: "Libro de Ejemplo",
-            author: "Autor de Ejemplo",
-            metadata: ["publisher": "Editorial", "language": "es"],
-            spine: EPUBSpine(spineReferences: [
-                EPUBSpineReference(resourceId: "chapter1"),
-                EPUBSpineReference(resourceId: "chapter2")
-            ]),
-            resources: [
-                "chapter1": EPUBResource(resourceId: "chapter1", href: "chapter1.html", fullHref: "", mediaType: .html),
-                "chapter2": EPUBResource(resourceId: "chapter2", href: "chapter2.html", fullHref: "", mediaType: .html)
-            ],
-            tableOfContents: [
-                EPUBTocReference(title: "Capítulo 1", resourceId: "chapter1"),
-                EPUBTocReference(title: "Capítulo 2", resourceId: "chapter2")
-            ]
-        )
-    }
-} 
+// Eliminar la implementación duplicada de EPUBParser aquí 

@@ -326,6 +326,53 @@ class EPUBService {
         
         return book
     }
+    
+    static func loadEPUB(from url: URL) throws -> EPUBDocument {
+        // 1. Crear un directorio temporal para descomprimir el EPUB
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        
+        do {
+            // 2. Crear el directorio temporal
+            try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+            
+            // 3. Descomprimir el EPUB
+            guard let archive = Archive(url: url, accessMode: .read) else {
+                throw EPUBError.invalidArchive
+            }
+            
+            // 4. Extraer todos los archivos
+            for entry in archive {
+                _ = try archive.extract(entry, to: temporaryDirectory.appendingPathComponent(entry.path))
+            }
+            
+            // 5. Parsear el EPUB descomprimido
+            let document = try EPUBParser.parseEPUB(at: temporaryDirectory)
+            
+            // 6. Limpiar el directorio temporal
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+            
+            return document
+        } catch {
+            // Limpiar el directorio temporal en caso de error
+            try? FileManager.default.removeItem(at: temporaryDirectory)
+            throw error
+        }
+    }
+    
+    static func extractContent(from spineItem: EPUBDocument.EPUBSpineItem, baseURL: URL) throws -> String {
+        let contentURL = baseURL.appendingPathComponent(spineItem.href)
+        let content = try String(contentsOf: contentURL, encoding: .utf8)
+        
+        // TODO: Implementar procesamiento del HTML para mejorar la visualización
+        // Por ahora, simplemente devolvemos el contenido HTML crudo
+        return content
+    }
+    
+    static func extractCoverImage(from document: EPUBDocument) -> Data? {
+        // TODO: Implementar extracción de imagen de portada
+        return nil
+    }
 }
 
 // MARK: - Modelos para XML
