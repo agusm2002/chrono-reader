@@ -8,6 +8,39 @@
 import SwiftUI
 import WebKit
 
+// Vista contenedora personalizada para manejar gestos
+struct EPUBGestureContainer: UIViewRepresentable {
+    var onTap: () -> Void
+    
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        
+        let tapGesture = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTap(_:)))
+        view.addGestureRecognizer(tapGesture)
+        
+        return view
+    }
+    
+    func updateUIView(_ uiView: UIView, context: Context) {}
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+    
+    class Coordinator: NSObject {
+        var parent: EPUBGestureContainer
+        
+        init(_ parent: EPUBGestureContainer) {
+            self.parent = parent
+        }
+        
+        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            parent.onTap()
+        }
+    }
+}
+
 struct EPUBViewerView: View {
     @StateObject var viewModel: EPUBViewerViewModel
     @Environment(\.presentationMode) var presentationMode
@@ -17,6 +50,7 @@ struct EPUBViewerView: View {
     @State private var showSettings: Bool = false
     @State private var initialTouchY: CGFloat = 0
     @State private var isDragging: Bool = false
+    @State private var showHUD: Bool = true
     
     // Gesture variables
     private let controlsAutoHideDelay: Double = 3.0
@@ -32,14 +66,70 @@ struct EPUBViewerView: View {
             viewModel.readerConfig.theme.backgroundColor
                 .edgesIgnoringSafeArea(.all)
             
+            // Contenedor de gestos que cubre toda la pantalla
+            EPUBGestureContainer {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showControls.toggle()
+                    showHUD.toggle()
+                }
+                
+                if showControls {
+                    resetControlsTimer()
+                } else {
+                    controlsTimer?.invalidate()
+                    controlsTimer = nil
+                }
+            }
+            .edgesIgnoringSafeArea(.all)
+            
             VStack(spacing: 0) {
                 // Contenido principal - PageView
                 EPUBPageView(viewModel: viewModel)
                     .edgesIgnoringSafeArea(.horizontal)
             }
             
-            // Controles de navegación
-            if showControls {
+            // HUD con botones de navegación
+            if showHUD {
+                VStack {
+                    HStack {
+                        // Botón de regresar (alineado con el de la barra superior)
+                        Button(action: {
+                            presentationMode.wrappedValue.dismiss()
+                        }) {
+                            Image(systemName: "chevron.left")
+                                .font(.title3.bold())
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Color.black.opacity(0.5))
+                                .clipShape(Circle())
+                        }
+                        .padding(.leading, 20)
+                        .padding(.top, 30)
+                        
+                        Spacer()
+                        
+                        // Botón del menú de secciones
+                        Button(action: {
+                            withAnimation(.spring()) {
+                                showTOC = true
+                            }
+                        }) {
+                            Image(systemName: "list.bullet")
+                                .font(.title3)
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Color.black.opacity(0.5))
+                                .clipShape(Circle())
+                        }
+                        .padding(.trailing, 20)
+                        .padding(.top, 30)
+                    }
+                    Spacer()
+                }
+            }
+            
+            // Controles de navegación (solo se muestran cuando showHUD es false)
+            if showControls && !showHUD {
                 VStack {
                     // Barra superior
                     topBar
@@ -103,6 +193,7 @@ struct EPUBViewerView: View {
                     if dragDirection > 50 && value.startLocation.y < 100 {
                         withAnimation(.easeOut(duration: 0.3)) {
                             showControls = true
+                            showHUD = true
                         }
                         resetControlsTimer()
                     }
@@ -110,6 +201,7 @@ struct EPUBViewerView: View {
                     else if dragDirection < -50 && value.startLocation.y > UIScreen.main.bounds.height - 100 {
                         withAnimation(.easeOut(duration: 0.3)) {
                             showControls = true
+                            showHUD = true
                         }
                         resetControlsTimer()
                     }
@@ -118,18 +210,6 @@ struct EPUBViewerView: View {
                     isDragging = false
                 }
         )
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                showControls.toggle()
-            }
-            
-            if showControls {
-                resetControlsTimer()
-            } else {
-                controlsTimer?.invalidate()
-                controlsTimer = nil
-            }
-        }
         .onAppear {
             resetControlsTimer()
             // Iniciar la carga del libro
@@ -299,6 +379,7 @@ struct EPUBPageContentView: UIViewRepresentable {
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.isPagingEnabled = true
         webView.scrollView.bounces = false
+        
         // Configurar el viewport para que ocupe todo el ancho
         let viewportScript = WKUserScript(
             source: "var meta = document.createElement('meta'); meta.setAttribute('name', 'viewport'); meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no'); document.getElementsByTagName('head')[0].appendChild(meta);",
