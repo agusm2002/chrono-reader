@@ -11,8 +11,11 @@ enum Tab {
 
 struct MainTabView: View {
     @State private var selectedTab: Tab = .home
-    @State private var forceUpdate: Bool = false // Para forzar actualización de la vista
-    @Environment(\.colorScheme) var colorScheme // Añadir environment para detectar cambios de colorScheme
+    @State private var forceUpdate: Bool = false
+    @State private var searchText: String = ""
+    @State private var isSearching: Bool = false
+    @State private var keyboardHeight: CGFloat = 0
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -20,28 +23,32 @@ struct MainTabView: View {
             VStack(spacing: 0) {
                 switch selectedTab {
                 case .home:
-                    HomeView()
-                        .accentColor(Color.appTheme()) // Aplicar color a los botones de navegación
+                    HomeView(externalSearchText: $searchText, externalIsSearching: $isSearching)
+                        .accentColor(Color.appTheme())
                 case .collections:
-                    CollectionsView()
-                        .accentColor(Color.appTheme()) // Aplicar color a los botones de navegación
+                    CollectionsView(externalSearchText: $searchText, externalIsSearching: $isSearching)
+                        .accentColor(Color.appTheme())
                 case .settings:
                     SettingsView()
-                        .accentColor(Color.appTheme()) // Aplicar color a los botones de navegación
+                        .accentColor(Color.appTheme())
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity) // Asegura que el contenido llene la pantalla
-            .id(forceUpdate) // Forzar actualización cuando cambia el tema
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .id(forceUpdate)
 
-            // Custom Tab Bar
-            VStack(spacing: 0) {
-                Divider()
-                CustomTabBar(selectedTab: $selectedTab)
-            }
-            .background(.ultraThinMaterial)
+            // Custom Tab Bar siempre visible, pero sin burbuja de búsqueda en Settings
+            CustomTabBar(
+                selectedTab: $selectedTab,
+                searchText: $searchText,
+                isSearching: $isSearching,
+                showSearchBubble: selectedTab != .settings
+            )
+            .offset(y: keyboardHeight > 0 ? -(keyboardHeight - 20) : 0)
+            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: keyboardHeight)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
         }
         .background(Color(.systemBackground))
-        .ignoresSafeArea(.keyboard)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .accentColor(Color.appTheme()) // Aplicar color a nivel global
         .onAppear {
             // Observar cambios de tema
@@ -53,6 +60,25 @@ struct MainTabView: View {
                 withAnimation {
                     forceUpdate.toggle() // Forzar actualización de la vista
                 }
+            }
+            
+            // Observar teclado
+            NotificationCenter.default.addObserver(
+                forName: UIResponder.keyboardWillShowNotification,
+                object: nil,
+                queue: .main
+            ) { notification in
+                if let keyboardFrame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                    keyboardHeight = keyboardFrame.height
+                }
+            }
+            
+            NotificationCenter.default.addObserver(
+                forName: UIResponder.keyboardWillHideNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                keyboardHeight = 0
             }
         }
         // Optimizar actualizaciones de colorScheme para reducir mensajes en consola

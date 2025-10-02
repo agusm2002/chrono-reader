@@ -1479,9 +1479,18 @@ struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     @State private var scrollOffset: CGFloat = 0
     @State private var isInitialLoad = true
-    @State private var showSkeleton = true // Estado para controlar la visualización del esqueleto
-    @State private var isRestoringFromBackground = false // Nuevo estado para detectar restauración desde fondo
-    @State private var uiBlockedTimer: Timer? = nil // Timer para detectar y recuperar bloqueos de UI
+    @State private var showSkeleton = true
+    @State private var isRestoringFromBackground = false
+    @State private var uiBlockedTimer: Timer? = nil
+    
+    // Bindings externos para búsqueda desde el tab bar
+    @Binding var externalSearchText: String
+    @Binding var externalIsSearching: Bool
+    
+    init(externalSearchText: Binding<String> = .constant(""), externalIsSearching: Binding<Bool> = .constant(false)) {
+        self._externalSearchText = externalSearchText
+        self._externalIsSearching = externalIsSearching
+    }
     
     var body: some View {
         ZStack {
@@ -1621,52 +1630,62 @@ struct HomeView: View {
     // Vista principal
     private var mainContent: some View {
         NavigationView {
-            ZStack(alignment: .top) {
-                // Content
-                if showSkeleton {
-                    skeletonView
-                } else {
-                    contentView
-                }
-
-                // Header fijo - siempre visible incluso durante la carga de esqueleto
-                headerView
-                    .zIndex(1000) // Asegurar que siempre está encima
-            }
-            .animation(.default, value: viewModel.isHeaderCompact)
-            .animation(.default, value: viewModel.isSearching)
-            .animation(.default, value: viewModel.selectedCategory)
-            .animation(.easeInOut(duration: 0.3), value: showSkeleton)
-            .onAppear {
-                print("⭐️ Home view appeared")
-                
-                // Inicialización diferida
-                if isInitialLoad {
-                    // Cargar libros inmediatamente (ya optimizado para carga en segundo plano)
-                    viewModel.loadBooks()
-                    
-                    // Mostrar el esqueleto por un mínimo de tiempo (mejor UX)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                        withAnimation {
-                            showSkeleton = false
+            contentView
+                .navigationTitle("Biblioteca")
+                .navigationBarTitleDisplayMode(.large)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button(action: {
+                            viewModel.isImporting = true
+                        }) {
+                            Image(systemName: "doc.badge.plus")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(Color.appTheme())
                         }
                     }
-                    
-                    // Diferir la carga de colecciones para después de que se muestre la UI
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        viewModel.collectionsViewModel.loadCollections()
-                        viewModel.collectionsViewModel.loadAvailableBooks()
-                        
-                        // Asegurarnos de que el gridLayout refleja el valor almacenado
-                        viewModel.gridLayout = viewModel.storedGridLayout
-                        
-                        // Forzar actualización del encabezado en un momento posterior
-                        viewModel.refreshHeader()
+                }
+                .onChange(of: externalSearchText) { newValue in
+                    viewModel.searchText = newValue
+                    viewModel.isSearching = !newValue.isEmpty || externalIsSearching
+                }
+                .onChange(of: externalIsSearching) { newValue in
+                    viewModel.isSearching = newValue || !externalSearchText.isEmpty
+                }
+                .onChange(of: viewModel.searchText) { newValue in
+                    if externalSearchText != newValue {
+                        externalSearchText = newValue
                     }
+                }
+                .onAppear {
+                    print("⭐️ Home view appeared")
                     
-                    isInitialLoad = false
-                } else {
-                    // Si no es la carga inicial, mostrar contenido inmediatamente
+                    // Inicialización diferida
+                    if isInitialLoad {
+                        // Cargar libros inmediatamente (ya optimizado para carga en segundo plano)
+                        viewModel.loadBooks()
+                        
+                        // Mostrar el esqueleto por un mínimo de tiempo (mejor UX)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                            withAnimation {
+                                showSkeleton = false
+                            }
+                        }
+                        
+                        // Diferir la carga de colecciones para después de que se muestre la UI
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            viewModel.collectionsViewModel.loadCollections()
+                            viewModel.collectionsViewModel.loadAvailableBooks()
+                            
+                            // Asegurarnos de que el gridLayout refleja el valor almacenado
+                            viewModel.gridLayout = viewModel.storedGridLayout
+                            
+                            // Forzar actualización del encabezado en un momento posterior
+                            viewModel.refreshHeader()
+                        }
+                        
+                        isInitialLoad = false
+                    } else {
+                        // Si no es la carga inicial, mostrar contenido inmediatamente
                     showSkeleton = false
                 }
                 
@@ -1682,28 +1701,27 @@ struct HomeView: View {
     // Vista de contenido real
     private var contentView: some View {
         ScrollView {
-            // Spacer transparente para empujar el contenido debajo del header fijo
-            Color.clear.frame(height: viewModel.isHeaderCompact ? 40 : (viewModel.isSearching ? 130 : 185))
-
             // Contenido principal
-            VStack(alignment: .leading, spacing: 0) { // Eliminar por completo el espaciado entre secciones
+            VStack(alignment: .leading, spacing: 0) {
+                // Espacio adicional para alinear con el botón
+                Color.clear.frame(height: 8)
+                
                 // Sección de "Continuar leyendo"
                 continueLeerSection
                 
                 // Sección de "Tus colecciones"
                 coleccionesSection
-                    .padding(.bottom, 0) // Asegurar que no haya padding inferior
-                    .padding(.top, 0) // Asegurar que no haya padding superior
+                    .padding(.bottom, 0)
+                    .padding(.top, 0)
                 
                 // Sección de "Todos los libros"
                 todosLibrosSection
-                    .padding(.top, 0) // Asegurar que no haya padding superior
-                    .padding(.bottom, 0) // Asegurar que no haya padding inferior
+                    .padding(.top, 0)
+                    .padding(.bottom, 0)
 
-                Spacer(minLength: 120) // Aumentado para dar más espacio al final
+                Spacer(minLength: 120)
             }
         }
-        .coordinateSpace(name: "scroll")
         .fileImporter(
             isPresented: $viewModel.isImporting,
             allowedContentTypes: [UTType.pdf, UTType.epub, UTType.init(filenameExtension: "cbr")!, UTType.init(filenameExtension: "cbz")!, UTType.init(filenameExtension: "m4b")!],
@@ -1883,106 +1901,9 @@ struct HomeView: View {
         }
     }
     
-    // Vista del encabezado
-    private var headerView: some View {
-        VStack(spacing: 0) {
-            // Espacio para la barra de estado
-            Color.clear
-                .frame(height: 50)
-            
-            // Título de la biblioteca
-            HStack {
-                Text("Biblioteca")
-                    .font(.system(size: 32, weight: .bold))
-                    .padding(.horizontal, 24)
-                    .padding(.top, 4)
-
-                Spacer()
-                
-                // Botón para compactar/expandir el encabezado
-                Button(action: {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        viewModel.isHeaderCompact.toggle()
-                        viewModel.storedIsHeaderCompact = viewModel.isHeaderCompact
-                        viewModel.refreshHeader()
-                    }
-                }) {
-                    Image(systemName: viewModel.isHeaderCompact ? "chevron.down" : "chevron.up")
-                        .font(.title2)
-                        .foregroundColor(.primary)
-                        .padding(.trailing, 8)
-                        .padding(.top, 4)
-                }
-
-                // Botón de importación
-                Button(action: {
-                    viewModel.isImporting = true
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "doc.badge.plus")
-                            .font(.system(size: 14, weight: .semibold))
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.appTheme())
-                    .cornerRadius(8)
-                    .padding(.trailing, 24)
-                    .padding(.top, 4)
-                }
-            }
-            .padding(.bottom, viewModel.isHeaderCompact ? 6 : 10) // Ajuste para que coincida con Colecciones
-
-            // Barra de búsqueda y categorías (visibles solo cuando el encabezado no está compacto)
-            if !viewModel.isHeaderCompact {
-                // Barra de búsqueda
-                SearchBarView(text: $viewModel.searchText, isSearching: $viewModel.isSearching)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 6)
-                    .padding(.bottom, 8)
-                    .onChange(of: viewModel.isSearching) { _ in
-                        viewModel.refreshHeader()
-                    }
-
-                // Selector de categorías (oculto durante la búsqueda)
-                if !viewModel.isSearching {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 10) {
-                            ForEach(HomeViewModel.BookCategory.allCases) { category in
-                                CategoryButton(
-                                    category: category,
-                                    isSelected: viewModel.selectedCategory == category,
-                                    action: { 
-                                        withAnimation {
-                                            viewModel.updateSelectedCategory(category) 
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 4)
-                    }
-                }
-            }
-        }
-        .background(
-            Material.ultraThinMaterial
-        )
-        .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
-        .overlay(
-            Rectangle()
-                .frame(height: 0.5)
-                .foregroundColor(Color.gray.opacity(0.3))
-                .offset(y: 1),
-            alignment: .bottom
-        )
-        .ignoresSafeArea(edges: .top)
-        .id("headerView-\(viewModel.headerRefreshTrigger)")
-        .transition(.opacity)
-    }
+    // Vista del encabezado con Liquid Glass adaptativo al scroll
     
-    // Sección "Continuar leyendo"
+    // Sección "Continuar leyendo" con Liquid Glass
     private var continueLeerSection: some View {
         Group {
             if !viewModel.isSearching && viewModel.selectedCategory == .all && !viewModel.booksInProgress.isEmpty && viewModel.showRecentSection {
@@ -2003,7 +1924,10 @@ struct HomeView: View {
                                         viewModel.toggleFavorite(book: book)
                                     })
                                     .frame(width: UIScreen.main.bounds.width / 2 - 30)
-                                    .padding(.bottom, 10) // Aumentar el espacio entre portada y título
+                                    .padding(.bottom, 10)
+                                    // Efecto Liquid Glass en las cards
+                                    .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 4)
+                                    .shadow(color: Color.black.opacity(0.04), radius: 2, x: 0, y: 1)
                                     
                                     Text(book.displayTitle)
                                         .font(.system(size: 13, weight: .medium))
@@ -2057,63 +1981,77 @@ struct HomeView: View {
         }
     }
     
-    // Sección "Tus colecciones"
+    // Sección "Tus colecciones" modernizada con Liquid Glass
     private var coleccionesSection: some View {
         Group {
             if !viewModel.isSearching && viewModel.selectedCategory == .all && !viewModel.collectionsViewModel.collections.isEmpty && viewModel.showCollectionsSection {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Título de sección con botón para ver todas - espaciado coincidente con otras secciones
-                    HStack {
-                        HeaderGradientText("Tus colecciones", fontSize: 20)
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 4)
-                            .padding(.top, 4) // Reducir al mínimo para acercar a la sección anterior
-                        
-                        Spacer()
-                        
-                        // Texto con la cantidad de colecciones
-                        Text("\(viewModel.collectionsViewModel.collections.count) colecciones")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .padding(.trailing, 24)
-                    }
-                    .padding(.bottom, 0)
-
-                    // Área con fondo sutil y carrusel de colecciones
-                    ZStack {
-                        // Fondo sutil para toda la sección
-                        Rectangle()
-                            .fill(
+                VStack(alignment: .leading, spacing: 12) {
+                    // Título de sección moderno con badge
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text("Tus colecciones")
+                            .font(.system(size: 26, weight: .bold, design: .rounded))
+                            .foregroundStyle(
                                 LinearGradient(
-                                    gradient: Gradient(colors: [
-                                        Color(.systemBackground).opacity(0.3),
-                                        Color(.systemBackground).opacity(0)
-                                    ]),
-                                    startPoint: .top,
-                                    endPoint: .bottom
+                                    colors: [.primary, .primary.opacity(0.8)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
                                 )
                             )
-                            .frame(height: 300) // Reducir aún más la altura del fondo
                         
-                        // Carrusel de colecciones con efectos visuales mejorados
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 24) { // Espaciado entre tarjetas
-                                ForEach(Array(viewModel.collectionsViewModel.collections.enumerated()), id: \.element.id) { index, collection in
-                                    CollectionCardView(
-                                        collection: collection,
-                                        books: viewModel.collectionsViewModel.booksInCollection(collection),
-                                        viewModel: viewModel.collectionsViewModel,
-                                        index: index
-                                    )
+                        // Badge moderno con cantidad
+                        Text("\(viewModel.collectionsViewModel.collections.count)")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(
+                                ZStack {
+                                    Capsule()
+                                        .fill(Material.ultraThin)
+                                    Capsule()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [.blue, .blue.opacity(0.8)],
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                    // Reflejo de vidrio
+                                    Capsule()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [.white.opacity(0.35), .clear],
+                                                startPoint: .top,
+                                                endPoint: .center
+                                            )
+                                        )
                                 }
+                            )
+                            .shadow(color: .blue.opacity(0.3), radius: 4, x: 0, y: 2)
+                        
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+
+                    // Carrusel de colecciones sin fondo pesado
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) {
+                            ForEach(Array(viewModel.collectionsViewModel.collections.enumerated()), id: \.element.id) { index, collection in
+                                CollectionCardView(
+                                    collection: collection,
+                                    books: viewModel.collectionsViewModel.booksInCollection(collection),
+                                    viewModel: viewModel.collectionsViewModel,
+                                    index: index
+                                )
                             }
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 0) // Eliminar completamente el padding vertical
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
                     }
                 }
-                .padding(.top, 0)
-                .padding(.bottom, 4) // Mínimo espacio entre secciones
+                .padding(.top, 12)
+                .padding(.bottom, 20)
             }
         }
     }
@@ -2130,7 +2068,7 @@ struct HomeView: View {
 
                 Spacer()
                 
-                // Menú de ordenamiento
+                // Menú de ordenamiento con Liquid Glass
                 Menu {
                     ForEach(SortOption.allCases) { option in
                         Button(action: {
@@ -2166,8 +2104,23 @@ struct HomeView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color(.systemGray6))
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color(.systemGray6).opacity(0.8))
+                            // Reflejo de vidrio líquido
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.white.opacity(0.15),
+                                            Color.clear
+                                        ]),
+                                        startPoint: .top,
+                                        endPoint: .center
+                                    )
+                                )
+                        }
+                        .shadow(color: Color.black.opacity(0.06), radius: 3, x: 0, y: 2)
                     )
                 }
                 .padding(.trailing, 8)
@@ -2182,31 +2135,35 @@ struct HomeView: View {
             Group {
                 if viewModel.filteredBooks.isEmpty && !viewModel.searchText.isEmpty {
                     emptySearchResultsView
+                        .transition(.opacity)
                 } else if viewModel.books.isEmpty {
                     emptyLibraryView
+                        .transition(.opacity)
                 } else {
-                    // Vista de libros filtrados con ID constante para prevenir reconstrucción completa
+                    // Vista de libros con transición suave entre layouts
                     BookGridUpdatedView(books: viewModel.filteredBooks, gridLayout: viewModel.gridLayout, onDelete: { book in
                         viewModel.deleteBook(book: book)
                     }, onToggleFavorite: { book in
                         viewModel.toggleFavorite(book: book)
                     })
                     .padding(.horizontal, 8)
-                    .padding(.top, 0) // Eliminar el espacio entre el título y las portadas
-                    .id("bookGridView") // ID constante para preservar el estado durante el filtrado
+                    .padding(.top, 0)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .id(viewModel.gridLayout) // Cambiar ID con el layout para forzar transición suave
                 }
             }
+            .animation(.spring(response: 0.4, dampingFraction: 0.75), value: viewModel.gridLayout)
         }
         .padding(.bottom, 4) // Mínimo espacio al final de la sección
     }
     
-    // Botón para cambiar el layout de la cuadrícula
+    // Botón para cambiar el layout de la cuadrícula con Liquid Glass
     private var gridLayoutButton: some View {
         Button(action: {
             // Guardamos la categoría actual antes de cambiar el layout
             let currentCategory = viewModel.selectedCategory
             
-            withAnimation(.easeInOut(duration: 0.3)) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
                 viewModel.gridLayout = (viewModel.gridLayout + 1) % 3
                 viewModel.storedGridLayout = viewModel.gridLayout
                 
@@ -2256,47 +2213,94 @@ struct HomeView: View {
         .padding(.top, 40)
     }
     
-    // Vista para biblioteca vacía
+    // Vista para biblioteca vacía - Diseño moderno
     private var emptyLibraryView: some View {
-        VStack(spacing: 24) {
-            ZStack {
-                Circle()
-                    .fill(Color.appTheme().opacity(0.1))
-                    .frame(width: 150, height: 150)
-                
-                VStack(spacing: 10) {
-                    Image(systemName: "books.vertical")
-                        .font(.system(size: 50))
-                        .foregroundColor(Color.appTheme())
-                    
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 30))
-                        .foregroundColor(Color.appTheme())
-                        .offset(y: -5)
-                }
-            }
-            .padding(.bottom, 10)
+        VStack(spacing: 0) {
+            Spacer()
             
+            // Ícono simple y elegante
+            Image(systemName: "books.vertical")
+                .font(.system(size: 80, weight: .ultraLight))
+                .foregroundStyle(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.appTheme(),
+                            Color.appTheme().opacity(0.6)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .padding(.bottom, 48)
+            
+            // Título principal
             Text("Tu biblioteca está vacía")
-                .font(.title2)
-                .fontWeight(.bold)
+                .font(.system(size: 28, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
                 .multilineTextAlignment(.center)
+                .padding(.bottom, 12)
             
+            // Descripción
             Text("Importa tus libros y cómics favoritos\npara comenzar a disfrutar de la lectura")
-                .font(.body)
+                .font(.system(size: 16, weight: .regular))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+                .lineSpacing(4)
+                .padding(.horizontal, 50)
+                .padding(.bottom, 40)
             
-            GradientButton("Importar libros", icon: "plus.circle.fill") {
-                // Mostrar el selector de archivos
+            // Botón moderno con efecto glass
+            Button(action: {
                 viewModel.isImporting = true
+            }) {
+                HStack(spacing: 10) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Importar libros")
+                        .font(.system(size: 17, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: 280)
+                .padding(.vertical, 16)
+                .background(
+                    ZStack {
+                        // Gradiente base
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color.appTheme(),
+                                        Color.appTheme().opacity(0.85)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                        
+                        // Reflejo glass
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(stops: [
+                                        .init(color: Color.white.opacity(0.25), location: 0),
+                                        .init(color: Color.white.opacity(0.1), location: 0.5),
+                                        .init(color: Color.clear, location: 1)
+                                    ]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    }
+                )
+                .shadow(color: Color.appTheme().opacity(0.4), radius: 20, x: 0, y: 10)
+                .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
             }
-            .padding(.top, 16)
+            .buttonStyle(PlainButtonStyle())
             
+            Spacer()
         }
-        .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
     }
     
     // Función para formatear el tamaño de archivos
@@ -2326,12 +2330,12 @@ struct SearchBarView: View {
                     .font(.system(size: 16))
                     .focused($isFocused)
                     .onChange(of: isFocused) { _ in
-                        withAnimation {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
                             isSearching = isFocused || !text.isEmpty
                         }
                     }
                     .onChange(of: text) { _ in
-                        withAnimation {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
                             isSearching = isFocused || !text.isEmpty
                         }
                     }
@@ -2347,35 +2351,58 @@ struct SearchBarView: View {
                     }
                 }
             }
-            .background(Color.gray.opacity(0.1))
-            .cornerRadius(10)
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.gray.opacity(0.3), lineWidth: 0.5)
+            .background(
+                ZStack {
+                    // Fondo con vibrancy Liquid Glass
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.gray.opacity(0.1))
+                    // Reflejo de vidrio sutil
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color.white.opacity(isFocused ? 0.15 : 0.08),
+                                    Color.clear
+                                ]),
+                                startPoint: .top,
+                                endPoint: .center
+                            )
+                        )
+                }
             )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(
+                        isFocused ? Color.appTheme().opacity(0.3) : Color.gray.opacity(0.2),
+                        lineWidth: isFocused ? 1.5 : 0.5
+                    )
+            )
+            .shadow(color: isFocused ? Color.appTheme().opacity(0.15) : Color.black.opacity(0.04), radius: isFocused ? 6 : 2, x: 0, y: isFocused ? 3 : 1)
 
             if isSearching && isFocused {
                 Button("Cancelar") {
                     text = ""
                     isFocused = false
-                    withAnimation {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
                         isSearching = false
                     }
                 }
                 .padding(.leading, 8)
                 .font(.system(size: 16))
-                .transition(.move(edge: .trailing))
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
         .frame(height: 44)
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: isFocused)
     }
 }
 
-// Helper view for category buttons
+// Helper view for category buttons con Liquid Glass
 struct CategoryButton: View {
     let category: HomeViewModel.BookCategory
     let isSelected: Bool
     let action: () -> Void
+    @State private var isPressed = false
 
     var body: some View {
         Button(action: action) {
@@ -2384,12 +2411,49 @@ struct CategoryButton: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(isSelected ? Color.appTheme().opacity(0.9) : Color.gray.opacity(0.1))
-                        .shadow(color: isSelected ? Color.appTheme().opacity(0.3) : Color.clear, radius: 2, x: 0, y: 1)
+                    ZStack {
+                        if isSelected {
+                            // Botón seleccionado con efecto Liquid Glass
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.appTheme(),
+                                            Color.appTheme().opacity(0.85)
+                                        ]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                            // Reflejo de vidrio
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [
+                                            Color.white.opacity(0.25),
+                                            Color.clear
+                                        ]),
+                                        startPoint: .top,
+                                        endPoint: .center
+                                    )
+                                )
+                        } else {
+                            // Botón no seleccionado con vibrancy
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color.gray.opacity(0.12))
+                        }
+                    }
+                    .shadow(color: isSelected ? Color.appTheme().opacity(0.3) : Color.black.opacity(0.04), radius: isSelected ? 4 : 2, x: 0, y: isSelected ? 2 : 1)
                 )
                 .foregroundColor(isSelected ? .white : .primary)
+                .scaleEffect(isPressed ? 0.96 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isPressed)
         }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in isPressed = true }
+                .onEnded { _ in isPressed = false }
+        )
     }
 }
 
@@ -2528,7 +2592,7 @@ struct RoundedCorner: Shape {
     }
 }
 
-// Vista de tarjeta de colección con animaciones
+// Vista de tarjeta de colección con Liquid Glass
 struct CollectionCardView: View {
     let collection: Collection
     let books: [CompleteBook]
@@ -2541,117 +2605,157 @@ struct CollectionCardView: View {
     var body: some View {
         NavigationLink(destination: CollectionDetailView(collection: collection, viewModel: viewModel)) {
             VStack(alignment: .leading, spacing: 0) {
-                // Contenedor principal más horizontal
+                // Contenedor de portadas con Liquid Glass moderno
                 ZStack(alignment: .bottom) {
-                    // Fondo con gradiente basado en el color de la colección
-                    RoundedRectangle(cornerRadius: 16)
+                    // Fondo con Material ultraThin
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Material.ultraThin)
+                    
+                    // Gradiente de color de la colección más sutil
+                    RoundedRectangle(cornerRadius: 20)
                         .fill(
                             LinearGradient(
                                 gradient: Gradient(colors: [
-                                    collection.color.opacity(0.25),
-                                    collection.color.opacity(0.15)
+                                    collection.color.opacity(0.12),
+                                    collection.color.opacity(0.05)
                                 ]),
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .overlay(
-                            // Borde sutil
-                            RoundedRectangle(cornerRadius: 16)
-                                .strokeBorder(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [
-                                            collection.color.opacity(0.6),
-                                            collection.color.opacity(0.2)
-                                        ]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1.5
-                                )
+                    
+                    // Reflejo de vidrio líquido superior
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(stops: [
+                                    .init(color: Color.white.opacity(0.15), location: 0),
+                                    .init(color: Color.clear, location: 0.4)
+                                ]),
+                                startPoint: .top,
+                                endPoint: .center
+                            )
                         )
                     
-                    // Portadas de libros con efectos visuales (área más grande)
+                    // Portadas de libros
                     HomeCollectionView(books: books)
-                        .frame(height: 180) // Reducir la altura de las portadas
-                        .padding(.horizontal, 30) // Más espacio horizontal
-                        .padding(.vertical, 8) // Reducir aún más el padding vertical
+                        .frame(height: 165)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 16)
                 }
-                .frame(height: 200) // Reducir la altura total del contenedor de portadas
+                .frame(height: 185)
+                .overlay(
+                    // Borde sutil
+                    RoundedRectangle(cornerRadius: 20)
+                        .strokeBorder(
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    collection.color.opacity(0.3),
+                                    collection.color.opacity(0.08)
+                                ]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 0.5
+                        )
+                )
                 
-                // Información de la colección con estilo mejorado
-                VStack(alignment: .leading, spacing: 5) {
-                    // Nombre con badge de número
+                // Información de la colección modernizada
+                VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .center, spacing: 8) {
                         Text(collection.name)
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
                             .foregroundColor(.primary)
                             .lineLimit(1)
                         
+                        Spacer()
+                        
+                        // Badge minimalista con cantidad
                         Text("\(books.count)")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundColor(collection.color)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
                             .background(
-                                LinearGradient(
-                                    gradient: Gradient(colors: [
-                                        collection.color.opacity(0.9),
-                                        collection.color.opacity(0.7)
-                                    ]),
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
+                                ZStack {
+                                    Capsule()
+                                        .fill(Material.ultraThinMaterial)
+                                    Capsule()
+                                        .fill(collection.color.opacity(0.15))
+                                    // Reflejo sutil
+                                    Capsule()
+                                        .fill(
+                                            LinearGradient(
+                                                colors: [.white.opacity(0.2), .clear],
+                                                startPoint: .top,
+                                                endPoint: .bottom
+                                            )
+                                        )
+                                }
                             )
-                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(collection.color.opacity(0.2), lineWidth: 0.5)
+                            )
                     }
-                    
-                    // Eliminada la sección de autores
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8) // Reducir el padding vertical
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
-                    // Fondo de vidrio para el área de información
-                    LinearGradient(
-                        gradient: Gradient(colors: [
-                            Color(.systemBackground).opacity(0.8),
-                            Color(.systemBackground).opacity(0.7)
-                        ]),
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-                .clipShape(
-                    RoundedCorner(
-                        radius: 16,
-                        corners: [.bottomLeft, .bottomRight]
-                    )
+                    // Fondo con Material para separación visual
+                    ZStack {
+                        RoundedCorner(
+                            radius: 20,
+                            corners: [.bottomLeft, .bottomRight]
+                        )
+                        .fill(Material.ultraThinMaterial)
+                        
+                        // Reflejo de vidrio muy sutil
+                        RoundedCorner(
+                            radius: 20,
+                            corners: [.bottomLeft, .bottomRight]
+                        )
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(stops: [
+                                    .init(color: Color.white.opacity(0.08), location: 0),
+                                    .init(color: Color.clear, location: 0.4)
+                                ]),
+                                startPoint: .top,
+                                endPoint: .center
+                            )
+                        )
+                    }
                 )
             }
-            .frame(width: 360, height: 245) // Reducir la altura para compensar el texto eliminado
-            .background(Color(.systemBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            // Efecto de profundidad con múltiples sombras
-            .shadow(color: Color.black.opacity(0.08), radius: 1, x: 0, y: 1)
-            .shadow(color: Color.black.opacity(isHovered ? 0.15 : 0.1), radius: isHovered ? 15 : 10, x: 0, y: isHovered ? 8 : 5)
-            // Efectos de animación
-            .scaleEffect(isHovered ? 1.03 : 1.0)
+            .frame(width: 330, height: 235)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(Color(.systemBackground))
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 20))
+            // Sombras Liquid Glass refinadas
+            .shadow(color: Color.black.opacity(0.03), radius: 1, x: 0, y: 1)
+            .shadow(color: Color.black.opacity(isHovered ? 0.1 : 0.06), radius: isHovered ? 20 : 12, x: 0, y: isHovered ? 10 : 6)
+            .shadow(color: collection.color.opacity(isHovered ? 0.12 : 0.06), radius: isHovered ? 14 : 8, x: 0, y: isHovered ? 7 : 4)
+            // Efectos de animación spring suaves
+            .scaleEffect(isHovered ? 1.02 : 1.0)
             .rotation3DEffect(
-                .degrees(isHovered ? 2 : 0),
+                .degrees(isHovered ? 1 : 0),
                 axis: (x: 0, y: 1, z: 0),
                 anchor: .center,
                 anchorZ: 0.0,
                 perspective: 1.0
             )
-            .brightness(isHovered ? 0.03 : 0)
-            // Animaciones de aparición
+            .brightness(isHovered ? 0.02 : 0)
+            // Animaciones de aparición fluidas
             .opacity(isVisible ? 1 : 0)
             .offset(y: isVisible ? 0 : 20)
-            .blur(radius: isVisible ? 0 : 3)
-            // Configuración de animaciones
-            .animation(.spring(response: 0.6, dampingFraction: 0.7).delay(0.08 * Double(index)), value: isVisible)
-            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isHovered)
+            .blur(radius: isVisible ? 0 : 2)
+            // Configuración de animaciones spring
+            .animation(.spring(response: 0.55, dampingFraction: 0.75).delay(0.08 * Double(index)), value: isVisible)
+            .animation(.spring(response: 0.35, dampingFraction: 0.75), value: isHovered)
             // Eventos de aparición
             .onAppear {
                 // Animamos la aparición con un retraso basado en el índice

@@ -145,23 +145,45 @@ struct GradientButton: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
             .background(
-                Group {
-                    if colorIndex == 0 {
-                        // Legacy theme with gradient
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color(red: 0.4, green: 0.5, blue: 0.9),
-                                Color(red: 0.35, green: 0.25, blue: 0.6)
-                            ]),
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    } else {
-                        Color.appTheme()
+                ZStack {
+                    // Base gradient con Liquid Glass
+                    Group {
+                        if colorIndex == 0 {
+                            // Legacy theme with gradient
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color(red: 0.4, green: 0.5, blue: 0.9),
+                                    Color(red: 0.35, green: 0.25, blue: 0.6)
+                                ]),
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        } else {
+                            LinearGradient(
+                                gradient: Gradient(colors: [
+                                    Color.appTheme(),
+                                    Color.appTheme().opacity(0.85)
+                                ]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        }
                     }
+                    // Reflejo de vidrio líquido
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.white.opacity(0.25),
+                            Color.clear
+                        ]),
+                        startPoint: .top,
+                        endPoint: .center
+                    )
                 }
             )
-            .cornerRadius(10)
+            .cornerRadius(12)
+            // Sombras multicapa Liquid Glass
+            .shadow(color: Color.appTheme().opacity(0.3), radius: 6, x: 0, y: 3)
+            .shadow(color: Color.black.opacity(0.15), radius: 2, x: 0, y: 1)
         }
         .buttonStyle(ScaleButtonStyle())
     }

@@ -985,36 +985,35 @@ struct EPUBTOCPanel: View {
     }
     
     // Vista para cada elemento de la tabla de contenidos
-    @ViewBuilder
-    private func tocItemView(_ tocItem: EPUBTocReference, level: Int) -> some View {
-        VStack(spacing: 0) {
-            // Botón para el ítem actual
-            Button(action: {
-                navigateToSection(tocItem)
-            }) {
-                HStack {
-                    Text(tocItem.title)
-                        .foregroundColor(.primary)
-                        .font(.system(size: 18, weight: .medium))
-                        .padding(.leading, CGFloat(level * 18) + 20)
-                        .padding(.vertical, 14)
-                    Spacer()
+    private func tocItemView(_ tocItem: EPUBTocReference, level: Int) -> AnyView {
+        AnyView(
+            VStack(spacing: 0) {
+                // Botón para el ítem actual
+                Button(action: {
+                    navigateToSection(tocItem)
+                }) {
+                    HStack {
+                        Text(tocItem.title)
+                            .foregroundColor(.primary)
+                            .font(.system(size: 18, weight: .medium))
+                            .padding(.leading, CGFloat(level * 18) + 20)
+                            .padding(.vertical, 14)
+                        Spacer()
+                    }
+                    .background(Color.white.opacity(0.0001))
+                    .contentShape(Rectangle())
                 }
-                .background(Color.white.opacity(0.0001))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PlainButtonStyle())
-            
-            // Separador después de cada ítem (excepto el último, que se manejará en el nivel superior)
-            Divider().background(Color.secondary.opacity(0.15))
-            
-            // Mostrar hijos si existen y no estamos demasiado profundos
-            if !tocItem.children.isEmpty && level < 3 {
-                ForEach(tocItem.children) { childItem in
-                    tocItemView(childItem, level: level + 1)
+                .buttonStyle(PlainButtonStyle())
+                // Separador después de cada ítem (excepto el último, que se manejará en el nivel superior)
+                Divider().background(Color.secondary.opacity(0.15))
+                // Mostrar hijos si existen y no estamos demasiado profundos
+                if !tocItem.children.isEmpty && level < 3 {
+                    ForEach(tocItem.children) { childItem in
+                        tocItemView(childItem, level: level + 1)
+                    }
                 }
             }
-        }
+        )
     }
 }
 

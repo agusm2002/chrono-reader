@@ -4,147 +4,106 @@ import SwiftUI
 
 struct CollectionsView: View {
     @StateObject private var viewModel = CollectionsViewModel()
-    @AppStorage("collectionsHeaderCompact") private var storedIsHeaderCompact: Bool = false
-    @State private var isHeaderCompact: Bool = false
+    
+    // Bindings externos para búsqueda desde el tab bar
+    @Binding var externalSearchText: String
+    @Binding var externalIsSearching: Bool
+    
+    init(externalSearchText: Binding<String> = .constant(""), externalIsSearching: Binding<Bool> = .constant(false)) {
+        self._externalSearchText = externalSearchText
+        self._externalIsSearching = externalIsSearching
+    }
     
     var body: some View {
         NavigationView {
-            ZStack(alignment: .top) {
-                // Content
-                ScrollView {
-                    // Spacer transparente para empujar el contenido debajo del header fijo
-                    Color.clear.frame(height: isHeaderCompact ? 40 : (viewModel.isSearching ? 100 : 110))
-                    
-                    VStack(spacing: 0) {
-                        // Sección de título y filtro (siempre visible)
-                        HStack(alignment: .center) {
-                            HeaderGradientText("Tus colecciones", fontSize: 20)
-                            
-                            Spacer()
-                            
-                            // Menú de ordenamiento
-                            Menu {
-                                ForEach(CollectionsViewModel.CollectionSortOption.allCases) { option in
-                                    Button(action: {
-                                        viewModel.selectedSortOption = option
-                                        viewModel.storedSortOption = option.rawValue
-                                    }) {
-                                        HStack {
-                                            Text(option.rawValue)
-                                            if viewModel.selectedSortOption == option {
-                                                Image(systemName: "checkmark")
-                                            }
-                                        }
-                                    }
-                                }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "arrow.up.arrow.down")
-                                    Text(viewModel.selectedSortOption.rawValue)
-                                        .lineLimit(1)
-                                        .minimumScaleFactor(0.8)
-                                }
-                                .font(.subheadline)
-                                .foregroundColor(.primary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color(.systemGray6))
-                                )
-                            }
-                        }
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 8)
-                        
-                        if viewModel.collections.isEmpty {
-                            emptyStateView
-                                .padding(.top, 20)
-                        } else {
-                            collectionsListLayer
-                                .padding(.top, 2)
-                        }
-                    }
-                }
-                
-                // Header fijo
+            ScrollView {
                 VStack(spacing: 0) {
-                    // Espacio para la barra de estado
-                    Color.clear
-                        .frame(height: 50)
+                    // Espacio adicional para alinear con el botón
+                    Color.clear.frame(height: 8)
                     
-                    // Título de la biblioteca
-                    HStack {
-                        Text("Colecciones")
-                            .font(.system(size: 32, weight: .bold))
-                            .padding(.horizontal, 24)
-                            .padding(.top, 4)
+                    // Sección de título y filtro
+                    HStack(alignment: .center) {
+                        HeaderGradientText("Tus colecciones", fontSize: 20)
                         
                         Spacer()
                         
-                        // Botón para compactar/expandir el encabezado
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                isHeaderCompact.toggle()
-                                storedIsHeaderCompact = isHeaderCompact
+                        // Menú de ordenamiento
+                        Menu {
+                            ForEach(CollectionsViewModel.CollectionSortOption.allCases) { option in
+                                Button(action: {
+                                    viewModel.selectedSortOption = option
+                                    viewModel.storedSortOption = option.rawValue
+                                }) {
+                                    HStack {
+                                        Text(option.rawValue)
+                                        if viewModel.selectedSortOption == option {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
                             }
-                        }) {
-                            Image(systemName: isHeaderCompact ? "chevron.down" : "chevron.up")
-                                .font(.title2)
-                                .foregroundColor(.primary)
-                                .padding(.trailing, 8)
-                                .padding(.top, 4)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                        
-                        // Botón de crear colección
-                        Button(action: {
-                            viewModel.showingCreateSheet = true
-                        }) {
+                        } label: {
                             HStack(spacing: 4) {
-                                Image(systemName: "folder.badge.plus")
-                                    .font(.system(size: 14, weight: .semibold))
+                                Image(systemName: "arrow.up.arrow.down")
+                                Text(viewModel.selectedSortOption.rawValue)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
                             }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 10)
+                            .font(.subheadline)
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(Color.appTheme())
-                            .cornerRadius(8)
-                            .padding(.trailing, 24)
-                            .padding(.top, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color(.systemGray6))
+                            )
                         }
                     }
-                    .padding(.bottom, isHeaderCompact ? 6 : 8)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 8)
                     
-                    // Barra de búsqueda y controles (visibles solo cuando el encabezado no está compacto)
-                    if !isHeaderCompact {
-                        // Solo barra de búsqueda
-                        SearchBarView(text: $viewModel.searchText, isSearching: $viewModel.isSearching)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 6)
-                            .padding(.bottom, 8)
+                    if viewModel.collections.isEmpty {
+                        emptyStateView
+                            .padding(.top, 20)
+                    } else {
+                        collectionsListLayer
+                            .padding(.top, 2)
+                    }
+                    
+                    Spacer(minLength: 120)
+                }
+            }
+            .navigationTitle("Colecciones")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        viewModel.showingCreateSheet = true
+                    }) {
+                        Image(systemName: "folder.badge.plus")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(Color.appTheme())
                     }
                 }
-                .background(
-                    Material.ultraThinMaterial
-                )
-                .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
-                .overlay(
-                    Rectangle()
-                        .frame(height: 0.5)
-                        .foregroundColor(Color.gray.opacity(0.3))
-                        .offset(y: 1),
-                    alignment: .bottom
-                )
-                .ignoresSafeArea(edges: .top)
             }
             .sheet(isPresented: $viewModel.showingCreateSheet) {
                 CreateCollectionView(viewModel: viewModel)
             }
             .onAppear {
                 viewModel.loadAvailableBooks()
-                isHeaderCompact = storedIsHeaderCompact
                 print("CollectionsView apareció, colecciones cargadas: \(viewModel.collections.count)")
+            }
+            .onChange(of: externalSearchText) { newValue in
+                viewModel.searchText = newValue
+            }
+            .onChange(of: externalIsSearching) { newValue in
+                viewModel.isSearching = newValue
+            }
+            .onChange(of: viewModel.searchText) { newValue in
+                externalSearchText = newValue
+            }
+            .onChange(of: viewModel.isSearching) { newValue in
+                externalIsSearching = newValue
             }
         }
         .accentColor(Color.appTheme())
@@ -171,35 +130,98 @@ struct CollectionsView: View {
         .id("collectionsListContainer") // ID constante para preservar el estado
     }
     
-    // Vista cuando no hay colecciones
+    // Vista cuando no hay colecciones - Diseño moderno
     private var emptyStateView: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "books.vertical.fill")
-                .font(.system(size: 70))
-                .foregroundColor(.gray.opacity(0.7))
-                .padding()
+        VStack(spacing: 0) {
+            Spacer()
             
+            // Ícono simple y elegante
+            Image(systemName: "folder.fill.badge.plus")
+                .font(.system(size: 80, weight: .ultraLight))
+                .foregroundStyle(
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.appTheme(),
+                            Color.appTheme().opacity(0.6)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .padding(.bottom, 48)
+            
+            // Título principal
             Text("No tienes colecciones todavía")
-                .font(.title2)
-                .fontWeight(.bold)
+                .font(.system(size: 28, weight: .semibold, design: .rounded))
+                .foregroundColor(.primary)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 12)
             
-            Text("Crea colecciones para organizar tus libros y cómics favoritos")
-                .font(.body)
+            // Descripción
+            Text("Crea colecciones para organizar\ntus libros y cómics favoritos")
+                .font(.system(size: 16, weight: .regular))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+                .lineSpacing(4)
+                .padding(.horizontal, 50)
+                .padding(.bottom, 40)
             
-            GradientButton("Crear colección") {
+            // Botón moderno con efecto glass
+            Button(action: {
                 viewModel.showingCreateSheet = true
+            }) {
+                HStack(spacing: 10) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Crear colección")
+                        .font(.system(size: 17, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: 280)
+                .padding(.vertical, 16)
+                .background(
+                    ZStack {
+                        // Gradiente base
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(colors: [
+                                        Color.appTheme(),
+                                        Color.appTheme().opacity(0.85)
+                                    ]),
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                        
+                        // Reflejo glass
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(
+                                LinearGradient(
+                                    gradient: Gradient(stops: [
+                                        .init(color: Color.white.opacity(0.25), location: 0),
+                                        .init(color: Color.white.opacity(0.1), location: 0.5),
+                                        .init(color: Color.clear, location: 1)
+                                    ]),
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    }
+                )
+                .shadow(color: Color.appTheme().opacity(0.4), radius: 20, x: 0, y: 10)
+                .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
             }
-            .padding(.top, 16)
+            .buttonStyle(PlainButtonStyle())
+            
+            Spacer()
         }
-        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
 struct CollectionsView_Previews: PreviewProvider {
     static var previews: some View {
-        CollectionsView()
+        CollectionsView(externalSearchText: .constant(""), externalIsSearching: .constant(false))
     }
 } 
