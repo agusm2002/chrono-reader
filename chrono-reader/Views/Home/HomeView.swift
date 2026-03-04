@@ -1737,9 +1737,11 @@ struct HomeView: View {
                         .padding(.top, 6)
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 16) {
-                            ForEach(viewModel.collections, id: \.id) { collection in
+                            ForEach(viewModel.collectionsViewModel.collections, id: \.id) { collection in
                                 // Compute books for the collection in a local variable to simplify type inference
-                                let booksForCollection = viewModel.books.filter { collection.books.contains($0.id) }
+                                let booksForCollection = viewModel.books.filter { book in
+                                    collection.books.contains(book.id)
+                                }
                                 CollectionCardView(collection: collection, books: booksForCollection, viewModel: viewModel.collectionsViewModel, index: 0)
                             }
                             .padding(.leading, 24)
