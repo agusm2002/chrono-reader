@@ -2,12 +2,12 @@ import SwiftUI
 
 struct ComicTopBar: View {
     @ObservedObject var model: ComicViewerModel
-    @Environment(\.presentationMode) var presentationMode
+    @Environment(\.dismiss) var dismiss
 
     var body: some View {
         HStack {
             Button(action: {
-                presentationMode.wrappedValue.dismiss()
+                dismiss()
             }) {
                 Image(systemName: "chevron.left")
                     .font(.title3)
