@@ -111,18 +111,18 @@ class HomeViewModel: ObservableObject {
         _selectedSortOption = SortOption(rawValue: storedSortOption) ?? .intelligent
         
         // Inicializar la categoría desde el almacenamiento
-        print("Cargando categoría almacenada: \(storedCategory)")
+    AppLogger.debug("HomeViewModel: Cargando categoría almacenada: \(storedCategory)")
         if let category = BookCategory(rawValue: storedCategory) {
             selectedCategory = category
-            print("Categoría inicializada a: \(category.rawValue)")
+            AppLogger.debug("HomeViewModel: Categoría inicializada a: \(category.rawValue)")
         } else {
             selectedCategory = .all
-            print("Categoría inicializada al valor por defecto: all")
+            AppLogger.debug("HomeViewModel: Categoría inicializada al valor por defecto: all")
         }
         
         // Inicializar el modo de vista desde el almacenamiento
         gridLayout = storedGridLayout
-        print("Modo de vista inicializado a: \(gridLayout)")
+    AppLogger.debug("HomeViewModel: Modo de vista inicializado a: \(gridLayout)")
         
         // Registrar observador para actualizaciones de progreso
         NotificationCenter.default.addObserver(
@@ -133,10 +133,10 @@ class HomeViewModel: ObservableObject {
             guard let self = self else { return }
             
             if let updatedBook = notification.userInfo?["book"] as? CompleteBook {
-                print("Notificación recibida para actualizar progreso de: \(updatedBook.book.title) - \(updatedBook.book.progress * 100)%")
+                AppLogger.debug("HomeViewModel: Notificación recibida para actualizar progreso de: \(updatedBook.book.title) - \(updatedBook.book.progress * 100)%")
                 self.updateBookProgress(updatedBook)
             } else {
-                print("Error: No se pudo obtener el libro de la notificación")
+                AppLogger.error("HomeViewModel: Error: No se pudo obtener el libro de la notificación")
             }
         }
 
@@ -259,15 +259,15 @@ class HomeViewModel: ObservableObject {
     
     // Función para procesar un archivo importado
     func processImportedFile(url: URL) {
-        print("Procesando archivo importado: \(url.path)")
+    AppLogger.debug("HomeViewModel: Procesando archivo importado: \(url.path)")
         isProcessingFiles = true // Activar el indicador de carga
         
         // Asegurarse de que el LoadingManager esté activo
         if !LoadingManager.shared.isLoading {
-            DispatchQueue.main.async {
-                LoadingManager.shared.startLoading() // Activar la vista de carga global
-                print("🔄 Activando indicador de carga global")
-            }
+                DispatchQueue.main.async {
+                    LoadingManager.shared.startLoading() // Activar la vista de carga global
+                    AppLogger.debug("HomeViewModel: 🔄 Activando indicador de carga global")
+                }
         }
         
         // Primero, crear una copia permanente del archivo en el directorio de documentos de la app
@@ -296,16 +296,16 @@ class HomeViewModel: ObservableObject {
                 do {
                     let data = try Data(contentsOf: url)
                     try data.write(to: destinationURL)
-                    print("Archivo copiado correctamente a: \(destinationURL.path)")
+                    AppLogger.debug("HomeViewModel: Archivo copiado correctamente a: \(destinationURL.path)")
                 } catch {
-                    print("Error al leer/escribir el archivo: \(error)")
+                    AppLogger.error("HomeViewModel: Error al leer/escribir el archivo: \(error)")
                     // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
                     return
                 }
             } else {
                 // Si no podemos acceder al archivo de manera segura, intentar copiarlo directamente
                 try fileManager.copyItem(at: url, to: destinationURL)
-                print("Archivo copiado directamente a: \(destinationURL.path)")
+                AppLogger.debug("HomeViewModel: Archivo copiado directamente a: \(destinationURL.path)")
             }
             
             // Ahora procesar el archivo copiado
@@ -336,14 +336,14 @@ class HomeViewModel: ObservableObject {
             // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
             
         } catch {
-            print("Error al copiar el archivo: \(error)")
+            AppLogger.error("HomeViewModel: Error al copiar el archivo: \(error)")
             // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
             
             // Intentar un método alternativo si el primero falla
             do {
                 let data = try Data(contentsOf: url)
                 try data.write(to: destinationURL)
-                print("Archivo copiado usando método alternativo a: \(destinationURL.path)")
+                AppLogger.debug("HomeViewModel: Archivo copiado usando método alternativo a: \(destinationURL.path)")
                 
                 // Procesar el archivo copiado
                 let fileExtension = url.pathExtension.lowercased()
@@ -371,7 +371,7 @@ class HomeViewModel: ObservableObject {
                 saveBooks()
                 // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
             } catch {
-                print("Error en el método alternativo: \(error)")
+                AppLogger.error("HomeViewModel: Error en el método alternativo: \(error)")
                 // No desactivamos los indicadores de carga aquí para permitir que el proceso principal lo haga
             }
         }
@@ -379,8 +379,8 @@ class HomeViewModel: ObservableObject {
     
     // Función para extraer metadatos de un cómic
     func processComicBookFile(url: URL, type: BookType) {
-        print("Procesando cómic: \(url.lastPathComponent)")
-        print("Tipo de archivo: \(type.rawValue)")
+    AppLogger.debug("HomeViewModel: Procesando cómic: \(url.lastPathComponent)")
+    AppLogger.debug("HomeViewModel: Tipo de archivo: \(type.rawValue)")
         
         var coverImage: UIImage?
         var author: String = "Desconocido"
@@ -395,20 +395,20 @@ class HomeViewModel: ObservableObject {
             options: .regularExpression
         )
         
-        print("Nombre limpio: \(title)")
+    AppLogger.debug("HomeViewModel: Nombre limpio: \(title)")
         
         // Obtener el controlador adecuado según el tipo de archivo
         let controller = ArchiveHelper.getController(for: type)
         
         do {
             // Intentar obtener la portada usando el controlador
-            print("Obteniendo portada usando ArchiveHelper")
+            AppLogger.debug("HomeViewModel: Obteniendo portada usando ArchiveHelper")
             coverImage = try controller.getThumbnailImage(for: url)
-            print("Portada obtenida correctamente")
+            AppLogger.debug("HomeViewModel: Portada obtenida correctamente")
             
             // Intentar obtener metadatos ComicInfo.xml si existe
             if let comicInfoData = try controller.getComicInfo(for: url) {
-                print("ComicInfo.xml encontrado, extrayendo metadatos")
+                AppLogger.debug("HomeViewModel: ComicInfo.xml encontrado, extrayendo metadatos")
                 
                 // Usar XMLParser para procesar los metadatos
                 let comicInfoHandler = ComicInfoHandler()
@@ -419,31 +419,32 @@ class HomeViewModel: ObservableObject {
                     if let comicTitle = comicInfoHandler.title, !comicTitle.isEmpty {
                         // Actualizar el título solo si se encontró uno en los metadatos
                         title = comicTitle
-                        print("Título encontrado en metadatos: \(title)")
+                        AppLogger.debug("HomeViewModel: Título encontrado en metadatos: \(title)")
                     }
                     
                     if let comicSeries = comicInfoHandler.series, !comicSeries.isEmpty {
                         series = comicSeries
-                        print("Serie encontrada: \(series ?? "Desconocida")")
+                        let seriesStr = series ?? "Desconocida"
+                        AppLogger.debug("HomeViewModel: Serie encontrada: \(seriesStr)")
                     }
                     
                     if let numberStr = comicInfoHandler.number, let number = Int(numberStr) {
                         issueNumber = number
-                        print("Número encontrado: \(number)")
+                        AppLogger.debug("HomeViewModel: Número encontrado: \(number)")
                     }
                     
                     if let comicWriter = comicInfoHandler.writer, !comicWriter.isEmpty {
                         author = comicWriter
-                        print("Autor encontrado: \(author)")
+                        AppLogger.debug("HomeViewModel: Autor encontrado: \(author)")
                     }
                 }
             }
         } catch {
-            print("Error al procesar el archivo con ArchiveHelper: \(error)")
+            AppLogger.error("HomeViewModel: Error al procesar el archivo con ArchiveHelper: \(error)")
             
             // Si falla, intentar métodos alternativos específicos del tipo
             if type == .cbz {
-                print("Intentando método alternativo para CBZ: \(url.path)")
+                AppLogger.debug("HomeViewModel: Intentando método alternativo para CBZ: \(url.path)")
                 if let archive = ZipArchive(url: url, accessMode: .read) {
                     // Extraer portada
                     coverImage = extractCoverFromZip(archive: archive)
@@ -452,7 +453,7 @@ class HomeViewModel: ObservableObject {
                     extractComicInfoFromZip(archive: archive, url: url, title: &title, author: &author, series: &series, issueNumber: &issueNumber)
                 }
             } else if type == .cbr {
-                print("Intentando método alternativo para CBR: \(url.path)")
+                AppLogger.debug("HomeViewModel: Intentando método alternativo para CBR: \(url.path)")
                 do {
                     let archive = try RarArchive(path: url.path, password: nil)
                     
@@ -462,7 +463,7 @@ class HomeViewModel: ObservableObject {
                     // Extraer metadatos si existen
                     extractComicInfoFromRar(archive: archive, url: url, title: &title, author: &author, series: &series, issueNumber: &issueNumber)
                 } catch {
-                    print("Error al abrir archivo RAR: \(error)")
+                    AppLogger.error("HomeViewModel: Error al abrir archivo RAR: \(error)")
                 }
             }
         }
@@ -517,26 +518,27 @@ class HomeViewModel: ObservableObject {
                     if parser.parse() {
                         if let comicTitle = comicInfoHandler.title, !comicTitle.isEmpty {
                             title = comicTitle
-                            print("Título encontrado: \(title)")
+                            AppLogger.debug("HomeViewModel: Título encontrado: \(title)")
                         }
                         
                         if let comicSeries = comicInfoHandler.series, !comicSeries.isEmpty {
                             series = comicSeries
-                            print("Serie encontrada: \(series ?? "Desconocida")")
+                            let seriesStr = series ?? "Desconocida"
+                            AppLogger.debug("HomeViewModel: Serie encontrada: \(seriesStr)")
                         }
                         
                         if let numberStr = comicInfoHandler.number, let number = Int(numberStr) {
                             issueNumber = number
-                            print("Número encontrado: \(number)")
+                            AppLogger.debug("HomeViewModel: Número encontrado: \(number)")
                         }
                         
                         if let comicWriter = comicInfoHandler.writer, !comicWriter.isEmpty {
                             author = comicWriter
-                            print("Autor encontrado: \(author)")
+                            AppLogger.debug("HomeViewModel: Autor encontrado: \(author)")
                         }
                     }
                 } catch {
-                    print("Error al extraer ComicInfo.xml: \(error)")
+                    AppLogger.error("HomeViewModel: Error al extraer ComicInfo.xml: \(error)")
                 }
                 break
             }
@@ -549,7 +551,7 @@ class HomeViewModel: ObservableObject {
             let entries = try archive.entries()
             
             if let comicInfoEntry = entries.first(where: { !$0.directory && $0.fileName.lowercased().contains("comicinfo.xml") }) {
-                print("ComicInfo.xml encontrado: \(comicInfoEntry.fileName)")
+                AppLogger.debug("HomeViewModel: ComicInfo.xml encontrado: \(comicInfoEntry.fileName)")
                 
                 let data = try archive.extract(comicInfoEntry)
                 
@@ -561,27 +563,28 @@ class HomeViewModel: ObservableObject {
                 if parser.parse() {
                     if let comicTitle = comicInfoHandler.title, !comicTitle.isEmpty {
                         title = comicTitle
-                        print("Título encontrado: \(title)")
+                        AppLogger.debug("HomeViewModel: Título encontrado: \(title)")
                     }
                     
-                    if let comicSeries = comicInfoHandler.series, !comicSeries.isEmpty {
-                        series = comicSeries
-                        print("Serie encontrada: \(series ?? "Desconocida")")
-                    }
+                        if let comicSeries = comicInfoHandler.series, !comicSeries.isEmpty {
+                            series = comicSeries
+                            let seriesStr = series ?? "Desconocida"
+                            AppLogger.debug("HomeViewModel: Serie encontrada: \(seriesStr)")
+                        }
                     
                     if let numberStr = comicInfoHandler.number, let number = Int(numberStr) {
                         issueNumber = number
-                        print("Número encontrado: \(number)")
+                        AppLogger.debug("HomeViewModel: Número encontrado: \(number)")
                     }
                     
                     if let comicWriter = comicInfoHandler.writer, !comicWriter.isEmpty {
                         author = comicWriter
-                        print("Autor encontrado: \(author)")
+                        AppLogger.debug("HomeViewModel: Autor encontrado: \(author)")
                     }
                 }
             }
         } catch {
-            print("Error al extraer ComicInfo.xml de RAR: \(error)")
+            AppLogger.error("HomeViewModel: Error al extraer ComicInfo.xml de RAR: \(error)")
         }
     }
     
@@ -591,18 +594,18 @@ class HomeViewModel: ObservableObject {
             let entryPath = entry.path.lowercased()
             if entryPath.hasSuffix(".jpg") || entryPath.hasSuffix(".jpeg") || entryPath.hasSuffix(".png") {
                 do {
-                    print("Encontrada posible portada: \(entry.path)")
+                    AppLogger.debug("HomeViewModel: Encontrada posible portada: \(entry.path)")
                     var data = Data()
                     try archive.extract(entry) { data.append($0) }
                     if let image = UIImage(data: data) {
-                        print("Portada extraída correctamente")
+                        AppLogger.debug("HomeViewModel: Portada extraída correctamente")
                         return image
                     } else {
-                        print("No se pudo crear la imagen desde los datos")
+                        AppLogger.error("HomeViewModel: No se pudo crear la imagen desde los datos")
                     }
                     break
                 } catch {
-                    print("Error al extraer la portada: \(error)")
+                    AppLogger.error("HomeViewModel: Error al extraer la portada: \(error)")
                 }
             }
         }
@@ -618,15 +621,15 @@ class HomeViewModel: ObservableObject {
             .filter { !$0.directory && isImagePath($0.fileName) }
         
         if let firstImageEntry = sortedEntries.first {
-            print("Portada encontrada en: \(firstImageEntry.fileName)")
+            AppLogger.debug("HomeViewModel: Portada encontrada en: \(firstImageEntry.fileName)")
             
             let data = try archive.extract(firstImageEntry)
             
             if let image = UIImage(data: data) {
-                print("Portada extraída correctamente")
+                AppLogger.debug("HomeViewModel: Portada extraída correctamente")
                 return image
             } else {
-                print("No se pudo crear la imagen desde los datos")
+                AppLogger.error("HomeViewModel: No se pudo crear la imagen desde los datos")
             }
         }
         
@@ -665,11 +668,11 @@ class HomeViewModel: ObservableObject {
             let encoder = JSONEncoder()
             let encoded = try encoder.encode(books)
             storedBooksData = encoded
-            print("Libros guardados correctamente: \(books.count) libros")
+            AppLogger.debug("HomeViewModel: Libros guardados correctamente: \(books.count) libros")
             
             // Imprimir información de progreso para depuración
             for book in books where book.book.progress > 0 {
-                print("Libro guardado: \(book.book.title) - Progreso: \(book.book.progress * 100)%")
+                AppLogger.debug("HomeViewModel: Libro guardado: \(book.book.title) - Progreso: \(book.book.progress * 100)%")
             }
             
             // Forzar sincronización con UserDefaults
@@ -687,7 +690,7 @@ class HomeViewModel: ObservableObject {
                 self.objectWillChange.send()
             }
         } catch {
-            print("Error al codificar los libros para guardar: \(error)")
+            AppLogger.error("HomeViewModel: Error al codificar los libros para guardar: \(error)")
         }
     }
     
@@ -706,7 +709,7 @@ class HomeViewModel: ObservableObject {
                     // Actualizar la UI en el hilo principal
                     DispatchQueue.main.async {
                         self.books = decoded
-                        print("Libros cargados correctamente: \(self.books.count) libros")
+                        AppLogger.debug("HomeViewModel: Libros cargados correctamente: \(self.books.count) libros")
                         
                         // Actualizar inmediatamente los libros filtrados
                         self.updateFilteredBooks()
@@ -717,15 +720,15 @@ class HomeViewModel: ObservableObject {
                         // Verificar y reparar las rutas en segundo plano después de mostrar la UI
                         self.performPathRepairInBackground()
                     }
-                } catch {
-                    print("Error al decodificar los libros guardados: \(error)")
-                    DispatchQueue.main.async {
-                        self.loadSampleBooks()
-                        self.isLoading = false
+                    } catch {
+                        AppLogger.error("HomeViewModel: Error al decodificar los libros guardados: \(error)")
+                        DispatchQueue.main.async {
+                            self.loadSampleBooks()
+                            self.isLoading = false
+                        }
                     }
-                }
             } else {
-                print("No se encontraron libros guardados")
+                AppLogger.debug("HomeViewModel: No se encontraron libros guardados")
                 DispatchQueue.main.async {
                     self.loadSampleBooks()
                     self.isLoading = false
@@ -736,8 +739,8 @@ class HomeViewModel: ObservableObject {
     
     func loadSampleBooks() {
         // Ya no cargamos libros de muestra, inicializamos un array vacío
-        books = []
-        print("Biblioteca inicializada sin libros de muestra")
+    books = []
+    AppLogger.debug("HomeViewModel: Biblioteca inicializada sin libros de muestra")
     }
     
     // Función para verificar y reparar las rutas de los archivos
@@ -745,15 +748,15 @@ class HomeViewModel: ObservableObject {
         let fileManager = FileManager.default
         var needsSaving = false
         
-        print("Verificando y reparando rutas de archivos...")
-        
-        // Primero, regenerar todas las portadas de EPUBs
-        print("Regenerando portadas de EPUBs...")
+    AppLogger.debug("HomeViewModel: Verificando y reparando rutas de archivos...")
+
+    // Primero, regenerar todas las portadas de EPUBs
+    AppLogger.debug("HomeViewModel: Regenerando portadas de EPUBs...")
         for (index, book) in books.enumerated() {
             if book.book.type == .epub, 
                let url = book.metadata.localURL, 
                fileManager.fileExists(atPath: url.path) {
-                print("Regenerando portada para: \(book.book.title)")
+                AppLogger.debug("HomeViewModel: Regenerando portada para: \(book.book.title)")
                 
                 if let coverImage = extractCoverFromFile(url: url, type: .epub) {
                     // Crear una nueva instancia que combine todos los datos actualizados
@@ -770,10 +773,10 @@ class HomeViewModel: ObservableObject {
                     )
                     books[index] = updatedBook
                     needsSaving = true
-                    print("Portada regenerada para \(book.book.title)")
-                } else {
-                    print("No se pudo regenerar la portada para \(book.book.title)")
-                }
+                    AppLogger.debug("HomeViewModel: Portada regenerada para \(book.book.title)")
+                    } else {
+                        AppLogger.error("HomeViewModel: No se pudo regenerar la portada para \(book.book.title)")
+                    }
             }
         }
         
@@ -782,13 +785,13 @@ class HomeViewModel: ObservableObject {
             // Verificar si la portada existe
             if let coverPath = book.metadata.coverPath {
                 if !fileManager.fileExists(atPath: coverPath) {
-                    print("Portada no encontrada para \(book.book.title): \(coverPath)")
+                    AppLogger.debug("HomeViewModel: Portada no encontrada para \(book.book.title): \(coverPath)")
                     
                     // Intentar regenerar la portada si es un cómic o EPUB
                     if (book.book.type == .cbz || book.book.type == .cbr || book.book.type == .epub), 
                        let url = book.metadata.localURL, 
                        fileManager.fileExists(atPath: url.path) {
-                        print("Intentando regenerar portada desde: \(url.path)")
+                        AppLogger.debug("HomeViewModel: Intentando regenerar portada desde: \(url.path)")
                         if let coverImage = extractCoverFromFile(url: url, type: book.book.type) {
                             // Crear una nueva instancia que combine todos los datos actualizados
                             let updatedBook = CompleteBook(
@@ -804,22 +807,22 @@ class HomeViewModel: ObservableObject {
                             )
                             books[index] = updatedBook
                             needsSaving = true
-                            print("Portada regenerada para \(book.book.title)")
+                            AppLogger.debug("HomeViewModel: Portada regenerada para \(book.book.title)")
                         } else {
-                            print("No se pudo regenerar la portada para \(book.book.title)")
+                            AppLogger.error("HomeViewModel: No se pudo regenerar la portada para \(book.book.title)")
                         }
                     }
                 } else {
-                    print("Portada encontrada para \(book.book.title): \(coverPath)")
+                    AppLogger.debug("HomeViewModel: Portada encontrada para \(book.book.title): \(coverPath)")
                 }
             } else {
-                print("No hay ruta de portada para \(book.book.title)")
+                AppLogger.debug("HomeViewModel: No hay ruta de portada para \(book.book.title)")
                 
                 // Intentar generar una portada si no existe
                 if (book.book.type == .cbz || book.book.type == .cbr || book.book.type == .epub), 
                    let url = book.metadata.localURL, 
                    fileManager.fileExists(atPath: url.path) {
-                    print("Intentando generar portada desde: \(url.path)")
+                    AppLogger.debug("HomeViewModel: Intentando generar portada desde: \(url.path)")
                     if let coverImage = extractCoverFromFile(url: url, type: book.book.type) {
                         // Crear una nueva instancia que combine todos los datos actualizados
                         let updatedBook = CompleteBook(
@@ -835,7 +838,7 @@ class HomeViewModel: ObservableObject {
                         )
                         books[index] = updatedBook
                         needsSaving = true
-                        print("Portada generada para \(book.book.title)")
+                        AppLogger.debug("HomeViewModel: Portada generada para \(book.book.title)")
                     }
                 }
             }
@@ -843,10 +846,10 @@ class HomeViewModel: ObservableObject {
             // Verificar si el archivo local existe
             if let localURL = book.metadata.localURL {
                 if !fileManager.fileExists(atPath: localURL.path) {
-                    print("Archivo no encontrado para \(book.book.title): \(localURL.path)")
+                    AppLogger.debug("HomeViewModel: Archivo no encontrado para \(book.book.title): \(localURL.path)")
                     // Aquí podrías implementar lógica adicional para manejar archivos faltantes
                 } else {
-                    print("Archivo encontrado para \(book.book.title): \(localURL.path)")
+                    AppLogger.debug("HomeViewModel: Archivo encontrado para \(book.book.title): \(localURL.path)")
                     
                     // Limpiar el título si contiene un prefijo UUID
                     let currentTitle = book.book.title
@@ -857,7 +860,7 @@ class HomeViewModel: ObservableObject {
                             options: .regularExpression
                         )
                         
-                        print("Limpiando título: \(currentTitle) -> \(cleanTitle)")
+                        AppLogger.debug("HomeViewModel: Limpiando título: \(currentTitle) -> \(cleanTitle)")
                         
                         // En lugar de intentar modificar la propiedad title, creamos directamente un nuevo libro
                         let updatedBook = CompleteBook(
@@ -874,26 +877,26 @@ class HomeViewModel: ObservableObject {
                         
                         books[index] = updatedBook
                         needsSaving = true
-                        print("Título limpiado para \(cleanTitle)")
+                        AppLogger.debug("HomeViewModel: Título limpiado para \(cleanTitle)")
                     }
                 }
             } else {
-                print("No hay ruta de archivo para \(book.book.title)")
+                AppLogger.debug("HomeViewModel: No hay ruta de archivo para \(book.book.title)")
             }
         }
         
         // Guardar los cambios si se hicieron reparaciones
         if needsSaving {
-            print("Guardando cambios después de reparaciones...")
+            AppLogger.debug("HomeViewModel: Guardando cambios después de reparaciones...")
             saveBooks()
         } else {
-            print("No se necesitaron reparaciones")
+            AppLogger.debug("HomeViewModel: No se necesitaron reparaciones")
         }
     }
     
     // Función para extraer la portada de un archivo (cómic o EPUB)
     func extractCoverFromFile(url: URL, type: BookType) -> UIImage? {
-        print("Extrayendo portada de: \(url.path)")
+    AppLogger.debug("HomeViewModel: Extrayendo portada de: \(url.path)")
         
         switch type {
         case .cbz, .cbr:
@@ -903,7 +906,7 @@ class HomeViewModel: ObservableObject {
                 let controller = EpubController()
                 return try controller.getThumbnailImage(for: url)
             } catch {
-                print("Error al extraer la portada del EPUB: \(error)")
+                AppLogger.error("HomeViewModel: Error al extraer la portada del EPUB: \(error)")
                 return nil
             }
         default:
@@ -914,181 +917,134 @@ class HomeViewModel: ObservableObject {
     // Función para extraer la portada de un cómic
     func extractCoverFromComic(url: URL, type: BookType) -> UIImage? {
         guard type == .cbz || type == .cbr else { return nil }
-        
-        print("Extrayendo portada de cómic: \(url.path)")
-        
-        // Limpiar el nombre del archivo eliminando el prefijo UUID
-        let originalFileName = url.lastPathComponent
-        let cleanFileName = originalFileName.replacingOccurrences(
-            of: "^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}-",
-            with: "",
-            options: .regularExpression
-        )
-        
-        print("Nombre limpio: \(cleanFileName)")
-        
+
+        // Intentar primero con ArchiveHelper (centraliza manejo y puede lanzar errores)
+        let controller = ArchiveHelper.getController(for: type)
+        do {
+            return try controller.getThumbnailImage(for: url)
+        } catch {
+            AppLogger.error("HomeViewModel: ArchiveHelper failed to get thumbnail for \(url.path): \(error)")
+        }
+
+        // Fallback para CBZ usando ZIPFoundation
         if type == .cbz {
-            print("Procesando archivo CBZ: \(url.path)")
-            // Usar el ArchiveHelper en lugar de acceder directamente al ZIP
-            let controller = ArchiveHelper.getController(for: .cbz)
-            do {
-                return try controller.getThumbnailImage(for: url)
-            } catch {
-                print("Error al extraer portada de CBZ: \(error)")
-                
-                // Intento alternativo con ZipArchive directo si falla el controlador
-                if let archive = ZipArchive(url: url, accessMode: .read) {
-                    // Ordenar las entradas para asegurarnos de obtener la primera imagen
-                    let sortedEntries = archive.sorted { $0.path < $1.path }
-                    
-                    for entry in sortedEntries {
-                        let entryPath = entry.path.lowercased()
-                        if entryPath.hasSuffix(".jpg") || entryPath.hasSuffix(".jpeg") || entryPath.hasSuffix(".png") {
-                            do {
-                                print("Encontrada posible portada: \(entry.path)")
-                                var data = Data()
-                                try archive.extract(entry) { data.append($0) }
-                                if let image = UIImage(data: data) {
-                                    print("Portada extraída correctamente")
-                                    return image
-                                } else {
-                                    print("No se pudo crear la imagen desde los datos")
-                                }
-                                break
-                            } catch {
-                                print("Error al extraer la portada: \(error)")
+            if let archive = ZipArchive(url: url, accessMode: .read) {
+                let sortedEntries = archive.sorted { $0.path < $1.path }
+                for entry in sortedEntries {
+                    let entryPath = entry.path.lowercased()
+                    if entryPath.hasSuffix(".jpg") || entryPath.hasSuffix(".jpeg") || entryPath.hasSuffix(".png") {
+                        do {
+                            var data = Data()
+                            try archive.extract(entry) { data.append($0) }
+                            if let image = UIImage(data: data) {
+                                AppLogger.debug("HomeViewModel: Cover extracted from CBZ: \(entry.path)")
+                                return image
                             }
+                        } catch {
+                            AppLogger.error("HomeViewModel: Error extracting image from CBZ: \(error)")
                         }
                     }
-                    print("No se encontraron imágenes en el archivo")
                 }
             }
-        } else if type == .cbr {
+        }
+
+        // Fallback para CBR usando Unrar
+        if type == .cbr {
             do {
-                print("Intentando abrir archivo RAR: \(url.path)")
                 let archive = try RarArchive(path: url.path, password: nil)
-                
                 let entries = try archive.entries()
-                print("Entradas encontradas: \(entries.count)")
-                
                 let sortedEntries = entries
                     .sorted(by: { $0.fileName < $1.fileName })
                     .filter { !$0.directory && isImagePath($0.fileName) }
-                
+
                 if let firstImageEntry = sortedEntries.first {
-                    print("Portada encontrada en: \(firstImageEntry.fileName)")
-                    
                     let data = try archive.extract(firstImageEntry)
-                    
                     if let image = UIImage(data: data) {
-                        print("Portada extraída correctamente")
+                        AppLogger.debug("HomeViewModel: Cover extracted from CBR: \(firstImageEntry.fileName)")
                         return image
-                    } else {
-                        print("No se pudo crear la imagen desde los datos")
                     }
-                } else {
-                    print("No se encontraron imágenes en el archivo RAR")
                 }
             } catch {
-                print("Error al abrir archivo RAR: \(error)")
+                AppLogger.error("HomeViewModel: Error extracting cover from RAR: \(error)")
             }
-        } else {
-            print("Tipo de archivo no soportado: \(type.rawValue)")
-            return nil
         }
-        
+
         return nil
     }
 
     func addBook(_ book: CompleteBook) {
-        books.append(book)
+        if let index = books.firstIndex(where: { $0.id == book.id }) {
+            books[index] = book
+            AppLogger.debug("HomeViewModel: Libro actualizado: \(book.book.title)")
+        } else {
+            books.append(book)
+            AppLogger.debug("HomeViewModel: Libro añadido: \(book.book.title)")
+        }
+
+        // Mantener sincronía con CollectionsViewModel y notificar a la UI
+        collectionsViewModel.loadAvailableBooks()
+        objectWillChange.send()
     }
 
     func deleteBook(book: CompleteBook) {
         if let index = books.firstIndex(where: { $0.id == book.id }) {
             books.remove(at: index)
-            
-            // Eliminar el libro de todas las colecciones que lo contengan
+
+            // Eliminar referencias en colecciones
             for collection in collectionsViewModel.collections {
                 if collection.books.contains(book.id) {
                     collectionsViewModel.removeBookFromCollection(collection, bookID: book.id)
                 }
             }
-            
-            // Guardar cambios
+
+            // Guardar cambios y mostrar notificación
             saveBooks()
-            
-            // Mostrar notificación toast
-            self.toastMessage = "Título eliminado correctamente"
-            self.toastStyle = .success
-            
-            // Usar withAnimation con un DispatchQueue para asegurar que se active el toast
-            DispatchQueue.main.async {
-                withAnimation(.spring()) {
-                    self.showToast = true
-                }
+            toastMessage = "Título eliminado correctamente"
+            toastStyle = .success
+            withAnimation(.spring()) {
+                showToast = true
             }
+        } else {
+            AppLogger.warn("HomeViewModel: Intento de borrar libro no existente: \(book.book.title)")
         }
     }
 
     // Función para borrar todos los libros y cargar los de muestra
     func resetToSampleBooks() {
-        // Primero forzar eliminación de colecciones en UserDefaults directamente
+        // Eliminar colecciones guardadas
         UserDefaults.standard.removeObject(forKey: "collections")
         UserDefaults.standard.synchronize()
-        
-        // Borrar todos los libros
-        books.removeAll()
-        
-        // Borrar los datos guardados
-        storedBooksData = nil
-        
-        // Forzar eliminación en UserDefaults
-        UserDefaults.standard.removeObject(forKey: "books")
-        UserDefaults.standard.synchronize()
-        
-        // Resetear las colecciones - asegurarse que se ejecute en la cola principal
-        DispatchQueue.main.async {
-            // Limpiar completamente las colecciones
-            self.collectionsViewModel.clearAllCollections()
-            
-            // Esperar un poco para asegurar que los cambios se procesen
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                // Verificar que realmente se hayan eliminado
-                if self.collectionsViewModel.collections.isEmpty {
-                    print("Confirmado: las colecciones se han eliminado correctamente")
-                } else {
-                    print("⚠️ ADVERTENCIA: Las colecciones no se eliminaron correctamente")
-                    // Intentar nuevamente
-                    self.collectionsViewModel.clearAllCollections()
-                }
-                
-                // Cargar los libros de muestra después de limpiar todo
-                self.loadSampleBooks()
-                
-                // Guardar los cambios
-                self.saveBooks()
-                
-                // Forzar actualización de la UI
-                self.objectWillChange.send()
-                self.collectionsViewModel.objectWillChange.send()
-                
-                print("Biblioteca reiniciada con libros de muestra y colecciones eliminadas")
-            }
-        }
+
+        // Limpiar colecciones en memoria
+        collectionsViewModel.clearAllCollections()
+
+        // Borrar todos los libros en memoria
+        books = []
+
+        // Cargar libros de muestra (función actualmente no añade ejemplos, pero mantiene contrato)
+        loadSampleBooks()
+
+        // Guardar estado limpio
+        saveBooks()
+
+        // Forzar actualización de la UI
+        objectWillChange.send()
+        collectionsViewModel.objectWillChange.send()
+
+        AppLogger.debug("HomeViewModel: Biblioteca reiniciada con libros de muestra y colecciones eliminadas")
     }
 
     // Función para actualizar el progreso de un libro
     func updateBookProgress(_ updatedBook: CompleteBook) {
-        print("Actualizando progreso para libro: \(updatedBook.book.title)")
-        print("Progreso recibido: \(updatedBook.book.progress * 100)%")
+    AppLogger.debug("HomeViewModel: Actualizando progreso para libro: \(updatedBook.book.title)")
+    AppLogger.debug("HomeViewModel: Progreso recibido: \(updatedBook.book.progress * 100)%")
         
         if let index = books.firstIndex(where: { $0.id == updatedBook.id }) {
             // Obtener el libro existente
             let existingBook = books[index]
             
-            print("Libro encontrado en la colección en posición \(index)")
-            print("Progreso anterior: \(existingBook.book.progress * 100)%")
+            AppLogger.debug("HomeViewModel: Libro encontrado en la colección en posición \(index)")
+            AppLogger.debug("HomeViewModel: Progreso anterior: \(existingBook.book.progress * 100)%")
             
             // Calcular la página actual de forma segura
             let currentPageText: String
@@ -1098,7 +1054,7 @@ class HomeViewModel: ObservableObject {
             } else {
                 currentPageText = "desconocida"
             }
-            print("Página actual: \(currentPageText) de \(updatedBook.book.pageCount ?? 0)")
+            AppLogger.debug("HomeViewModel: Página actual: \(currentPageText) de \(updatedBook.book.pageCount ?? 0)")
             
             // Crear una nueva instancia que combine todos los datos actualizados
             var updatedBookCopy = updatedBook.book
@@ -1132,11 +1088,11 @@ class HomeViewModel: ObservableObject {
                 // Forzar actualización de la UI
                 self.objectWillChange.send()
                 self.collectionsViewModel.objectWillChange.send()
-                print("Progreso actualizado y guardado para \(combinedBook.book.title): \(combinedBook.book.progress * 100)%")
-                print("Número de páginas actualizado: \(updatedBook.book.pageCount ?? 0)")
+                AppLogger.debug("HomeViewModel: Progreso actualizado y guardado para \(combinedBook.book.title): \(combinedBook.book.progress * 100)%")
+                AppLogger.debug("HomeViewModel: Número de páginas actualizado: \(updatedBook.book.pageCount ?? 0)")
             }
         } else {
-            print("No se encontró el libro con ID: \(updatedBook.id) - Añadiendo a la colección")
+            AppLogger.debug("HomeViewModel: No se encontró el libro con ID: \(updatedBook.id) - Añadiendo a la colección")
             // Si el libro no existe en la colección, añadirlo
             books.append(updatedBook)
             
@@ -1145,14 +1101,14 @@ class HomeViewModel: ObservableObject {
                 self.saveBooks()
                 // Forzar actualización de la UI
                 self.objectWillChange.send()
-                print("Nuevo libro añadido y guardado: \(updatedBook.book.title)")
+                AppLogger.debug("HomeViewModel: Nuevo libro añadido y guardado: \(updatedBook.book.title)")
             }
         }
     }
 
     // Función para procesar un archivo EPUB
     func processEpubFile(url: URL) {
-        print("Procesando EPUB: \(url.lastPathComponent)")
+    AppLogger.debug("HomeViewModel: Procesando EPUB: \(url.lastPathComponent)")
         
         var coverImage: UIImage?
         var author: String = "Desconocido"
@@ -1178,9 +1134,9 @@ class HomeViewModel: ObservableObject {
         do {
             let controller = EpubController()
             coverImage = try controller.getThumbnailImage(for: url)
-            print("Portada de EPUB extraída correctamente")
+            AppLogger.debug("HomeViewModel: Portada de EPUB extraída correctamente")
         } catch {
-            print("Error al extraer la portada del EPUB: \(error)")
+            AppLogger.error("HomeViewModel: Error al extraer la portada del EPUB: \(error)")
         }
         
         // Crear un nuevo libro con los metadatos extraídos
@@ -1200,7 +1156,7 @@ class HomeViewModel: ObservableObject {
     
     // Función para procesar un archivo M4B
     func processM4BFile(url: URL) {
-        print("Procesando M4B: \(url.lastPathComponent)")
+    AppLogger.debug("HomeViewModel: Procesando M4B: \(url.lastPathComponent)")
         
         var coverImage: UIImage?
         var author: String = "Desconocido"
@@ -1228,7 +1184,7 @@ class HomeViewModel: ObservableObject {
         // Extraer metadatos
         for item in asset.metadata {
             if let keySpace = item.keySpace, let key = item.key {
-                print("Metadato encontrado: \(keySpace) - \(key)")
+                AppLogger.debug("HomeViewModel: Metadato encontrado: \(keySpace) - \(key)")
                 
                 // Comprobar metadatos comunes
                 if let commonKey = item.commonKey {
@@ -1236,17 +1192,17 @@ class HomeViewModel: ObservableObject {
                     case AVMetadataKey.commonKeyTitle:
                         if let titleValue = item.stringValue {
                             title = titleValue
-                            print("Título extraído: \(title)")
+                            AppLogger.debug("HomeViewModel: Título extraído: \(title)")
                         }
                     case AVMetadataKey.commonKeyArtist, AVMetadataKey.commonKeyAuthor:
                         if let artistValue = item.stringValue {
                             author = artistValue
-                            print("Autor extraído: \(author)")
+                            AppLogger.debug("HomeViewModel: Autor extraído: \(author)")
                         }
                     case AVMetadataKey.commonKeyArtwork:
                         if let artworkData = item.dataValue, let image = UIImage(data: artworkData) {
                             coverImage = image
-                            print("Portada extraída de los metadatos")
+                            AppLogger.debug("HomeViewModel: Portada extraída de los metadatos")
                         }
                     default:
                         break
@@ -1261,7 +1217,7 @@ class HomeViewModel: ObservableObject {
             let config = UIImage.SymbolConfiguration(pointSize: 150, weight: .regular)
             if let defaultImage = UIImage(systemName: "headphones.circle.fill", withConfiguration: config)?.withTintColor(.systemGreen, renderingMode: .alwaysOriginal) {
                 coverImage = defaultImage
-                print("Usando portada predeterminada para audiolibro")
+                AppLogger.debug("HomeViewModel: Usando portada predeterminada para audiolibro")
             }
         }
         
@@ -1292,8 +1248,8 @@ class HomeViewModel: ObservableObject {
     // Función para actualizar la categoría seleccionada
     func updateSelectedCategory(_ category: BookCategory) {
         selectedCategory = category
-        storedCategory = category.rawValue
-        print("Categoría actualizada a: \(category.rawValue), almacenada como: \(storedCategory)")
+    storedCategory = category.rawValue
+    AppLogger.debug("HomeViewModel: Categoría actualizada a: \(category.rawValue), almacenada como: \(storedCategory)")
         
         // Actualizar el encabezado para evitar problemas de visualización
         refreshHeader()
@@ -1344,7 +1300,7 @@ class HomeViewModel: ObservableObject {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
             
-            print("Verificando y reparando rutas de archivos en segundo plano...")
+            AppLogger.debug("HomeViewModel: Verificando y reparando rutas de archivos en segundo plano...")
             let fileManager = FileManager.default
             var booksToUpdate: [(Int, CompleteBook)] = []
             
@@ -1364,7 +1320,7 @@ class HomeViewModel: ObservableObject {
                             options: .regularExpression
                         )
                         
-                        print("Limpiando título: \(currentTitle) -> \(cleanTitle)")
+                        AppLogger.debug("HomeViewModel: Limpiando título: \(currentTitle) -> \(cleanTitle)")
                         
                         updatedBook = CompleteBook(
                             id: book.id,
@@ -1430,7 +1386,7 @@ class HomeViewModel: ObservableObject {
     // Método para realizar una actualización ligera sin bloquear la UI
     func performLightRefresh() {
         // Verificar si hay nuevos libros sin iniciar carga pesada
-        print("Realizando actualización ligera")
+    AppLogger.debug("HomeViewModel: Realizando actualización ligera")
         
         // No recargar los libros completos, solo actualizar los filtros
         DispatchQueue.main.async {
@@ -1451,7 +1407,7 @@ class HomeViewModel: ObservableObject {
     
     // Restauración segura - Para usar cuando la app vuelve de segundo plano
     func safeRestoreFromBackground() {
-        print("🔄 Restaurando HomeViewModel desde segundo plano")
+    AppLogger.debug("HomeViewModel: 🔄 Restaurando desde segundo plano")
         
         // Limpiar estados de carga
         isLoading = false
@@ -1602,8 +1558,8 @@ struct HomeView: View {
         // Crear un nuevo timer que verificará si la UI está bloqueada cada 3 segundos
         uiBlockedTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { _ in
             // Verificar si hay indicadores de carga activos por más tiempo del esperado
-            if LoadingManager.shared.isLoading {
-                print("⚠️ Posible bloqueo de UI detectado - realizando recuperación automática")
+                if LoadingManager.shared.isLoading {
+                AppLogger.warn("HomeView: ⚠️ Posible bloqueo de UI detectado - realizando recuperación automática")
                 
                 // Forzar la liberación de todos los bloqueos de carga
                 LoadingManager.shared.forceStopAllLoading()
@@ -1657,7 +1613,7 @@ struct HomeView: View {
                     }
                 }
                 .onAppear {
-                    print("⭐️ Home view appeared")
+                    AppLogger.debug("HomeView: ⭐️ Home view appeared")
                     
                     // Inicialización diferida
                     if isInitialLoad {
@@ -1736,7 +1692,7 @@ struct HomeView: View {
                 // Procesar todas las URLs seleccionadas
                 DispatchQueue.global(qos: .userInitiated).async {
                     for (index, url) in urls.enumerated() {
-                        print("🔄 Procesando archivo \(index+1) de \(urls.count): \(url.lastPathComponent)")
+                        AppLogger.debug("HomeView: 🔄 Procesando archivo \(index+1) de \(urls.count): \(url.lastPathComponent)")
                         // Solicitar acceso de seguridad para cada archivo
                         if url.startAccessingSecurityScopedResource() {
                             // Asegurarse de que se libere el acceso cuando terminemos
@@ -1747,19 +1703,19 @@ struct HomeView: View {
                                 viewModel.processImportedFile(url: url)
                             }
                         } else {
-                            print("❌ No se pudo acceder al archivo de manera segura: \(url.path)")
+                            AppLogger.error("HomeView: ❌ No se pudo acceder al archivo de manera segura: \(url.path)")
                         }
                     }
                     
                     // Desactivar el indicador de carga cuando se complete todo el proceso
                     DispatchQueue.main.async {
-                        print("✅ Importación completada: \(urls.count) archivos procesados")
+                        AppLogger.debug("HomeView: ✅ Importación completada: \(urls.count) archivos procesados")
                         viewModel.isProcessingFiles = false
                         LoadingManager.shared.stopLoading()
                     }
                 }
             case .failure(let error):
-                print("❌ Error al importar archivos: \(error)")
+                AppLogger.error("HomeView: ❌ Error al importar archivos: \(error)")
                 // Asegurarse de desactivar los indicadores de carga en caso de error
                 DispatchQueue.main.async {
                     viewModel.isProcessingFiles = false
@@ -1770,6 +1726,45 @@ struct HomeView: View {
     }
     
     // Vista de esqueleto de carga
+    // Sección placeholder para colecciones (temporal, reemplazar por CollectionsSection)
+    private var coleccionesSection: some View {
+        Group {
+            if viewModel.showCollectionsSection {
+                VStack(alignment: .leading) {
+                    Text("Colecciones")
+                        .font(.system(size: 18, weight: .semibold))
+                        .padding(.horizontal, 24)
+                        .padding(.top, 6)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) {
+                            ForEach(viewModel.collections, id: \.id) { collection in
+                                CollectionCardView(collection: collection, books: viewModel.books.filter { collection.books.contains($0.id) }, viewModel: viewModel.collectionsViewModel, index: 0)
+                            }
+                            .padding(.leading, 24)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Sección placeholder para "Todos los libros" (temporal, reemplazar por AllBooksSection)
+    private var todosLibrosSection: some View {
+        VStack(alignment: .leading) {
+            Text("Todos los libros")
+                .font(.system(size: 18, weight: .semibold))
+                .padding(.horizontal, 24)
+                .padding(.top, 6)
+            // Minimal grid placeholder
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 16)], spacing: 20) {
+                ForEach(viewModel.filteredBooks, id: \.id) { book in
+                    BookItemView(book: book)
+                }
+            }
+            .padding(.horizontal, 24)
+        }
+    }
+
     private var skeletonView: some View {
         ZStack {
             // Esqueleto de contenido
@@ -2356,3 +2351,44 @@ struct CollectionCardView: View {
 }
 
 // ModernLoadingIndicator moved to Views/Home/ModernLoadingIndicator.swift
+
+// Minimal stub implementations to keep HomeView compiling while refactors are landed.
+// Replace these with the full components in separate files when available.
+
+struct ContinueReadingSection: View {
+    let viewModel: HomeViewModel
+
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text("Seguir leyendo")
+                .font(.system(size: 18, weight: .semibold))
+                .padding(.horizontal, 24)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(viewModel.booksInProgress, id: \.id) { book in
+                        BookItemView(book: book)
+                            .frame(width: UIScreen.main.bounds.width / 2 - 30)
+                    }
+                }
+                .padding(.leading, 24)
+            }
+        }
+        .padding(.vertical, 12)
+    }
+}
+
+struct SkeletonView: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: 8)
+            .fill(Color.gray.opacity(0.2))
+    }
+}
+
+struct ModernLoadingIndicator: View {
+    var body: some View {
+        ProgressView()
+            .progressViewStyle(CircularProgressViewStyle(tint: Color.appTheme()))
+            .scaleEffect(1.6)
+    }
+}
