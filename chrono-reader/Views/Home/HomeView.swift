@@ -1707,7 +1707,7 @@ struct HomeView: View {
                 Color.clear.frame(height: 8)
                 
                 // Sección de "Continuar leyendo"
-                continueLeerSection
+                ContinueReadingSection(viewModel: viewModel)
                 
                 // Sección de "Tus colecciones"
                 coleccionesSection
@@ -1874,112 +1874,11 @@ struct HomeView: View {
         }
     }
     
-    // Componente de esqueleto
-    struct SkeletonView: View {
-        @State private var isAnimating = false
-        
-        var body: some View {
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color(.systemGray5),
-                    Color(.systemGray6),
-                    Color(.systemGray5)
-                ]),
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .opacity(isAnimating ? 0.7 : 0.4)
-            .animation(
-                Animation
-                    .easeInOut(duration: 1.5)
-                    .repeatForever(autoreverses: true),
-                value: isAnimating
-            )
-            .onAppear {
-                isAnimating = true
-            }
-        }
-    }
+    // SkeletonView moved to Views/Home/SkeletonView.swift
     
     // Vista del encabezado con Liquid Glass adaptativo al scroll
     
-    // Sección "Continuar leyendo" con Liquid Glass
-    private var continueLeerSection: some View {
-        Group {
-            if !viewModel.isSearching && viewModel.selectedCategory == .all && !viewModel.booksInProgress.isEmpty && viewModel.showRecentSection {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Header con espaciado exactamente igual al de "Todos los títulos"
-                    HeaderGradientText("Continuar leyendo", fontSize: 20)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 4)
-                        .padding(.top, 8)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 20) {
-                            ForEach(viewModel.booksInProgress) { book in
-                                VStack(alignment: .leading, spacing: 0) {
-                                    BookItemView(book: book, showTitle: false, onDelete: {
-                                        viewModel.deleteBook(book: book)
-                                    }, onToggleFavorite: {
-                                        viewModel.toggleFavorite(book: book)
-                                    })
-                                    .frame(width: UIScreen.main.bounds.width / 2 - 30)
-                                    .padding(.bottom, 10)
-                                    // Efecto Liquid Glass en las cards
-                                    .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 4)
-                                    .shadow(color: Color.black.opacity(0.04), radius: 2, x: 0, y: 1)
-                                    
-                                    Text(book.displayTitle)
-                                        .font(.system(size: 13, weight: .medium))
-                                        .lineLimit(1)
-                                        .foregroundColor(.primary)
-                                        .frame(width: UIScreen.main.bounds.width / 2 - 30, alignment: .leading)
-                                        .padding(.top, 0) // Quitar el padding negativo
-                                    
-                                    // Agregar las etiquetas de información
-                                    HStack(spacing: 4) {
-                                        if let localURL = book.metadata.localURL,
-                                           let fileSize = try? FileManager.default.attributesOfItem(atPath: localURL.path)[.size] as? Int64 {
-                                            Text(formatFileSize(fileSize))
-                                                .font(.system(size: 10, weight: .medium))
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 2)
-                                                .background(Color.gray.opacity(0.15))
-                                                .cornerRadius(4)
-                                        }
-                                        
-                                        Text(book.book.type.rawValue.uppercased())
-                                            .font(.system(size: 10, weight: .medium))
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(Color.gray.opacity(0.15))
-                                            .foregroundColor(.primary)
-                                            .cornerRadius(4)
-                                        
-                                        if let issue = book.book.issueNumber {
-                                            Text("#\(issue)")
-                                                .font(.system(size: 10, weight: .semibold))
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 2)
-                                                .background(Color.gray.opacity(0.15))
-                                                .cornerRadius(4)
-                                        }
-                                    }
-                                    .frame(width: UIScreen.main.bounds.width / 2 - 30, alignment: .leading)
-                                    .padding(.top, 2)
-                                }
-                                .frame(width: UIScreen.main.bounds.width / 2 - 30)
-                            }
-                        }
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 4)
-                    }
-                    .padding(.top, 0)
-                }
-                .padding(.bottom, 4) // Mínimo espacio entre secciones
-            }
-        }
-    }
+    // continueLeerSection moved to Views/Home/ContinueReadingSection.swift
     
     // Sección "Tus colecciones" modernizada con Liquid Glass
     private var coleccionesSection: some View {
@@ -2774,61 +2673,4 @@ struct CollectionCardView: View {
     }
 }
 
-// Indicador de carga moderno para mostrar encima del esqueleto
-struct ModernLoadingIndicator: View {
-    @State private var isAnimating = false
-    @State private var rotation = 0.0
-    
-    var body: some View {
-        ZStack {
-            // Fondo con difuminado
-            Circle()
-                .fill(Color(.systemBackground).opacity(0.8))
-                .frame(width: 130, height: 130)
-                .shadow(color: Color.black.opacity(0.2), radius: 15, x: 0, y: 5)
-            
-            // Diseño simplificado con anillo único
-            ZStack {
-                // Círculo de fondo
-                Circle()
-                    .fill(Color(.systemBackground))
-                    .frame(width: 110, height: 110)
-                    .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 2)
-                
-                // Anillo giratorio con gradiente
-                Circle()
-                    .trim(from: 0, to: 0.75)
-                    .stroke(
-                        LinearGradient(
-                            gradient: Gradient(colors: [
-                                Color.appTheme(),
-                                Color.appTheme().opacity(0.5)
-                            ]),
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        ),
-                        style: StrokeStyle(lineWidth: 8, lineCap: .round)
-                    )
-                    .frame(width: 100, height: 100)
-                    .rotationEffect(.degrees(rotation))
-                
-                // Contenido central
-                VStack(spacing: 8) {
-                    Image(systemName: "book.fill")
-                        .font(.system(size: 28))
-                        .foregroundColor(Color.appTheme())
-                    
-                    Text("Cargando")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(Color.appTheme())
-                }
-            }
-        }
-        .onAppear {
-            // Animación contínua del anillo
-            withAnimation(Animation.linear(duration: 1.5).repeatForever(autoreverses: false)) {
-                rotation = 360
-            }
-        }
-    }
-}
+// ModernLoadingIndicator moved to Views/Home/ModernLoadingIndicator.swift
