@@ -971,6 +971,7 @@ class IVPagingController: UIViewController {
     private var layout: UICollectionViewFlowLayout!
     private var cancellables = Set<AnyCancellable>()
     private var tapGestureRecognizer: UITapGestureRecognizer!
+    private var lastKnownLayoutSize: CGSize = .zero
     
     // Definir las regiones de navegación
     private struct NavigationRegion {
@@ -1057,12 +1058,39 @@ class IVPagingController: UIViewController {
     
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // Actualizar el layout cuando cambia el tamaño de la vista
+        // Asegurar primero que el collectionView ocupe todo el espacio disponible
+        collectionView.frame = view.bounds
+
+        // Evitar recrear layout en cada ciclo: solo cuando cambia el tamaño.
+        let currentSize = collectionView.bounds.size
+        guard currentSize != .zero, currentSize != lastKnownLayoutSize else { return }
+        lastKnownLayoutSize = currentSize
+
         let newLayout = createLayout()
         collectionView.setCollectionViewLayout(newLayout, animated: false)
-        
-        // Asegurar que el collectionView ocupe todo el espacio disponible
-        collectionView.frame = view.bounds
+        collectionView.collectionViewLayout.invalidateLayout()
+    }
+
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            guard let self = self else { return }
+
+            if self.model.doublePaged && !self.model.readingMode.isVertical {
+                self.model.buildDoublePages()
+            }
+
+            self.updateReadingMode()
+            self.scrollToPage(self.model.currentPage, animated: false)
+
+            // Asegurar que no quede estado de zoom/orientación de la geometría previa.
+            let visibleCells = self.collectionView.visibleCells.compactMap { $0 as? ComicPageCell }
+            for cell in visibleCells {
+                cell.scrollView.setZoomScale(1.0, animated: false)
+                cell.scrollView.setContentOffset(.zero, animated: false)
+            }
+        }
     }
     
     override var prefersHomeIndicatorAutoHidden: Bool {
@@ -1287,15 +1315,16 @@ class IVPagingController: UIViewController {
     private func createLayout() -> UICollectionViewFlowLayout {
         let layout = UICollectionViewFlowLayout()
         
-        // Obtener el tamaño real disponible, incluidas las áreas seguras
-        let fullScreenSize = UIScreen.main.bounds.size
+        // Usar el tamaño real visible para responder bien a portrait/landscape.
+        let availableSize = collectionView?.bounds.size ?? view.bounds.size
+        let layoutSize = (availableSize.width > 0 && availableSize.height > 0) ? availableSize : UIScreen.main.bounds.size
         
         if model.readingMode.isVertical {
             // Layout vertical para webtoons
             layout.scrollDirection = .vertical
             layout.minimumLineSpacing = 0
             layout.minimumInteritemSpacing = 0
-            layout.itemSize = CGSize(width: fullScreenSize.width, height: fullScreenSize.height)
+            layout.itemSize = CGSize(width: layoutSize.width, height: layoutSize.height)
         } else {
             // Layout horizontal para cómics/manga
             layout.scrollDirection = .horizontal
@@ -1304,10 +1333,10 @@ class IVPagingController: UIViewController {
             
             if model.doublePaged {
                 // Modo de página doble - usar ancho completo para mostrar dos páginas
-                layout.itemSize = CGSize(width: fullScreenSize.width, height: fullScreenSize.height)
+                layout.itemSize = CGSize(width: layoutSize.width, height: layoutSize.height)
             } else {
                 // Modo de página única - usar el ancho completo disponible
-                layout.itemSize = CGSize(width: fullScreenSize.width, height: fullScreenSize.height)
+                layout.itemSize = CGSize(width: layoutSize.width, height: layoutSize.height)
             }
         }
         
@@ -1712,64 +1741,72 @@ class ComicPageCell: UICollectionViewCell {
         // Limpiar cualquier configuración anterior
         cleanupDoublePageViews()
         scrollView.reset()
-        
-        // Crear un nuevo contenedor
+
+        let orderedLeft: UIImage
+        let orderedRight: UIImage
+
+        // Si la celda está espejada (manga), invertimos el orden para mantener la lectura correcta.
+        if contentView.transform == CGAffineTransform(scaleX: -1, y: 1) {
+            orderedLeft = rightImage
+            orderedRight = leftImage
+        } else {
+            orderedLeft = leftImage
+            orderedRight = rightImage
+        }
+
+        // Crear contenedor de doble página para evitar composiciones pesadas por celda.
         let container = UIView()
         leftRightContainer = container
-        
-        // Crear las vistas de imagen
-        let leftView = UIImageView()
-        let rightView = UIImageView()
+
+        let leftView = UIImageView(image: orderedLeft)
+        let rightView = UIImageView(image: orderedRight)
         leftImageView = leftView
         rightImageView = rightView
-        
-        // Configurar las vistas de imagen
+
         leftView.contentMode = .scaleAspectFit
         rightView.contentMode = .scaleAspectFit
-        
-        // Si la celda tiene una transformación espejada, invertir el orden
-        // La transformación se aplica cuando estamos en modo manga con páginas dobles
-        if contentView.transform == CGAffineTransform(scaleX: -1, y: 1) {
-            // En modo manga con transformación, invertir el orden de las imágenes
-            // para compensar el efecto espejo
-            leftView.image = rightImage
-            rightView.image = leftImage
-        } else {
-            // En modo normal, mantener el orden original
-            leftView.image = leftImage
-            rightView.image = rightImage
-        }
-        
-        // Agregar las vistas al contenedor
-        container.addSubview(leftView)
-        container.addSubview(rightView)
-        
-        // Configurar constraints del contenedor
+        leftView.clipsToBounds = true
+        rightView.clipsToBounds = true
+        leftView.layer.allowsEdgeAntialiasing = false
+        rightView.layer.allowsEdgeAntialiasing = false
+
+        let pagesStack = UIStackView(arrangedSubviews: [leftView, rightView])
+        pagesStack.axis = .horizontal
+        pagesStack.alignment = .fill
+        pagesStack.distribution = .fill
+        pagesStack.spacing = -(1.0 / UIScreen.main.scale)
+
+        container.addSubview(pagesStack)
+
         container.translatesAutoresizingMaskIntoConstraints = false
+        pagesStack.translatesAutoresizingMaskIntoConstraints = false
         leftView.translatesAutoresizingMaskIntoConstraints = false
         rightView.translatesAutoresizingMaskIntoConstraints = false
-        
-        // Agregar constraints para las imágenes dentro del contenedor
+
+        let leftAspect = max(0.01, orderedLeft.size.width) / max(0.01, orderedLeft.size.height)
+        let rightAspect = max(0.01, orderedRight.size.width) / max(0.01, orderedRight.size.height)
+
         NSLayoutConstraint.activate([
-            // Imagen izquierda
-            leftView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            leftView.topAnchor.constraint(equalTo: container.topAnchor),
-            leftView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            leftView.widthAnchor.constraint(equalTo: container.widthAnchor, multiplier: 0.5),
-            
-            // Imagen derecha
-            rightView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            rightView.topAnchor.constraint(equalTo: container.topAnchor),
-            rightView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            rightView.widthAnchor.constraint(equalTo: container.widthAnchor, multiplier: 0.5)
+            pagesStack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            pagesStack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            pagesStack.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor),
+            pagesStack.heightAnchor.constraint(lessThanOrEqualTo: container.heightAnchor),
+
+            leftView.widthAnchor.constraint(equalTo: leftView.heightAnchor, multiplier: leftAspect),
+            rightView.widthAnchor.constraint(equalTo: rightView.heightAnchor, multiplier: rightAspect)
         ])
-        
-        // Configurar scroll view para el contenedor completo
+
+        // En portrait hay que ajustar por ancho para evitar efecto de zoom.
+        // En landscape ajustamos por alto para aprovechar mejor la pantalla.
+        if contentView.bounds.height >= contentView.bounds.width {
+            pagesStack.widthAnchor.constraint(equalTo: container.widthAnchor).isActive = true
+        } else {
+            pagesStack.heightAnchor.constraint(equalTo: container.heightAnchor).isActive = true
+        }
+
         scrollView.allowVerticalScroll = false
         scrollView.updateScrollBehavior()
         scrollView.setupZoomForView(container)
-        
-        // Configurar el fondo
         self.useWhiteBackground = useWhiteBackground
     }
     
@@ -1876,10 +1913,17 @@ class ZoomingScrollView: UIScrollView {
     
     // Método para actualizar la configuración de desplazamiento según el modo de lectura
     func updateScrollBehavior() {
+        let hasZoom = zoomScale > (minimumZoomScale + 0.01)
+
         // Configurar el comportamiento de rebote según si permitimos desplazamiento vertical
         alwaysBounceVertical = allowVerticalScroll
+
         // Si estamos en modo vertical (webtoon), permitir rebote, en caso contrario no
         bounces = allowVerticalScroll
+
+        // En modo paginado, evitar que el scroll interno capture el swipe horizontal
+        // cuando no hay zoom activo.
+        isScrollEnabled = allowVerticalScroll || hasZoom
     }
     
     private func setupWrapper() {
@@ -2233,6 +2277,9 @@ extension ZoomingScrollView: UIScrollViewDelegate {
             bottom: frameOffsetY,
             right: frameOffsetX
         )
+
+        // Evita conflicto con el swipe del paginado cuando no hay zoom real.
+        updateScrollBehavior()
     }
     
     // Controlar el desplazamiento vertical
@@ -2283,191 +2330,207 @@ struct ComicSettingsView: View {
     @Environment(\.colorScheme) var colorScheme
     
     var body: some View {
-        ZStack {
-            // Fondo con efecto de blur
-            Color.black.opacity(0.5)
-                .background(Color.black.opacity(0.2))
-                .edgesIgnoringSafeArea(.all)
-                .onTapGesture {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        isPresented = false
-                    }
-                }
-            
-            // Panel de configuración con diseño moderno
-            VStack(spacing: 0) {
-                // Encabezado con diseño mejorado
-                HStack {
-                    Text("Configuración")
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(.primary)
-                    
-                    Spacer()
-                    
-                    Button(action: {
+        GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
+            let panelWidth = isLandscape
+                ? min(geometry.size.width * 0.9, 860)
+                : min(geometry.size.width * 0.85, 380)
+            let panelHeight = isLandscape
+                ? geometry.size.height * 0.92
+                : geometry.size.height * 0.85
+
+            ZStack {
+                // Fondo con efecto de blur
+                Color.black.opacity(0.5)
+                    .background(Color.black.opacity(0.2))
+                    .edgesIgnoringSafeArea(.all)
+                    .onTapGesture {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             isPresented = false
                         }
-                    }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title3)
-                            .foregroundColor(.secondary)
                     }
-                    .buttonStyle(.plain)
-                }
-                .padding(.top, 24)
-                .padding(.bottom, 16)
-                .padding(.horizontal, 24)
-                
-                Divider()
-                    .background(Color.secondary.opacity(0.2))
+
+                // Panel de configuración con diseño adaptable
+                VStack(spacing: 0) {
+                    // Encabezado con diseño mejorado
+                    HStack {
+                        Text("Configuración")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(.primary)
+
+                        Spacer()
+
+                        Button(action: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                isPresented = false
+                            }
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title3)
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 24)
+                    .padding(.bottom, 16)
                     .padding(.horizontal, 24)
-                
-                // Contenido principal con scroll
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        // Selector de modo de lectura
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("MODO DE LECTURA")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.secondary)
-                                .padding(.horizontal, 24)
-                            
-                            VStack(spacing: 12) {
-                                ForEach(ReadingMode.allCases) { mode in
-                                    ReadingModeRow(
-                                        mode: mode,
-                                        isSelected: readingMode == mode,
-                                        action: {
-                                            withAnimation {
-                                                // Cambiar el modo de lectura primero
-                                                readingMode = mode
-                                                
-                                                // Si cambiamos a modo vertical, desactivar páginas dobles
-                                                // pero hacerlo en el siguiente ciclo para evitar actualizaciones cíclicas
-                                                if mode.isVertical && doublePaged {
-                                                    DispatchQueue.main.async {
-                                                        doublePaged = false
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    )
+
+                    Divider()
+                        .background(Color.secondary.opacity(0.2))
+                        .padding(.horizontal, 24)
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 24) {
+                            if isLandscape {
+                                HStack(alignment: .top, spacing: 20) {
+                                    readingModeSection(horizontalPadding: 0)
+                                        .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                                    optionsSection(horizontalPadding: 0)
+                                        .frame(maxWidth: .infinity, alignment: .topLeading)
                                 }
-                            }
-                            .padding(.horizontal, 24)
-                        }
-                        
-                        // Otras opciones
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("OPCIONES")
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.secondary)
                                 .padding(.horizontal, 24)
-                            
-                            VStack(spacing: 16) {
-                                // Opción de páginas dobles
-                                if !readingMode.isVertical {
-                                    SettingsToggleRow(
-                                        title: "Páginas dobles",
-                                        subtitle: "Muestra dos páginas simultáneamente",
-                                        iconName: "book.pages.fill",
-                                        isEnabled: true,
-                                        isActive: doublePaged,
-                                        binding: $doublePaged
-                                    )
-                                    
-                                    // Opción de aislar primera página (mostrarla sola)
-                                    if doublePaged {
-                                        // Volver a usar SettingsToggleRow con un binding personalizado
-                                        SettingsToggleRow(
-                                            title: "Combinar portada",
-                                            subtitle: "Mostrar la primera página junto con otra (cuando está activado) o por separado (cuando está desactivado)",
-                                            iconName: "doc.viewfinder",
-                                            isEnabled: doublePaged,
-                                            isActive: isolateFirstPage,
-                                            binding: Binding(
-                                                get: { isolateFirstPage },
-                                                set: { newValue in
-                                                    // Cambiar el valor directamente
-                                                    isolateFirstPage = newValue
-                                                    
-                                                    // Forzar actualización inmediata de la UI
-                                                    DispatchQueue.main.async {
-                                                        // Notificar el cambio para actualizar la vista inmediatamente
-                                                        NotificationCenter.default.post(
-                                                            name: Notification.Name("ForceUpdateDoublePages"),
-                                                            object: nil,
-                                                            userInfo: ["isolateFirstPage": newValue]
-                                                        )
-                                                    }
-                                                }
-                                            )
-                                        )
-                                        .padding(.leading, 24)
-                                    }
-                                }
-                                
-                                // Opción de fondo blanco
-                                SettingsToggleRow(
-                                    title: "Fondo claro",
-                                    subtitle: "Cambia entre fondos claro y oscuro para una lectura más cómoda",
-                                    iconName: useWhiteBackground ? "sun.max.fill" : "moon.fill",
-                                    isEnabled: true,
-                                    isActive: useWhiteBackground,
-                                    binding: $useWhiteBackground
-                                )
-                                
-                                // Opción para mostrar/ocultar miniaturas
-                                SettingsToggleRow(
-                                    title: "Vista previa de miniaturas",
-                                    subtitle: "Muestra miniaturas de las páginas encima de la barra de progreso",
-                                    iconName: "photo.on.rectangle",
-                                    isEnabled: true,
-                                    isActive: showThumbnails,
-                                    binding: $showThumbnails
-                                )
+                            } else {
+                                readingModeSection(horizontalPadding: 24)
+                                optionsSection(horizontalPadding: 24)
                             }
-                            .padding(.horizontal, 24)
+
+                            appInfoSection
                         }
-                        
-                        // Información de la app
-                        VStack {
-                            Text("Chrono Reader")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                                .padding(.top)
-                            Text("v1.0")
-                                .font(.caption2)
-                                .foregroundColor(.gray)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 12)
-                        .padding(.bottom, 24)
+                        .padding(.top, 8)
                     }
-                    .padding(.top, 8)
                 }
-                
+                .frame(width: panelWidth)
+                .frame(maxHeight: panelHeight)
+                .background(
+                    RoundedRectangle(cornerRadius: 24)
+                        .fill(Color(UIColor.systemBackground).opacity(0.95))
+                        .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 24))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(Color.secondary.opacity(0.1), lineWidth: 1)
+                )
+                .padding(.horizontal, 20)
+                .padding(.vertical, isLandscape ? 12 : (geometry.size.height < 700 ? 20 : 40))
             }
-            .frame(maxWidth: min(UIScreen.main.bounds.width * 0.85, 380))
-            .background(
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(Color(UIColor.systemBackground).opacity(0.95))
-                    .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 24))
-            .overlay(
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(Color.secondary.opacity(0.1), lineWidth: 1)
-            )
-            .padding(.horizontal, 20)
-            .padding(.vertical, UIScreen.main.bounds.height < 700 ? 20 : 40)
-            .frame(maxHeight: UIScreen.main.bounds.height * 0.85)
         }
         .zIndex(10)
+    }
+
+    private func readingModeSection(horizontalPadding: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("MODO DE LECTURA")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, horizontalPadding)
+
+            VStack(spacing: 12) {
+                ForEach(ReadingMode.allCases) { mode in
+                    ReadingModeRow(
+                        mode: mode,
+                        isSelected: readingMode == mode,
+                        action: {
+                            withAnimation {
+                                readingMode = mode
+
+                                if mode.isVertical && doublePaged {
+                                    DispatchQueue.main.async {
+                                        doublePaged = false
+                                    }
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+            .padding(.horizontal, horizontalPadding)
+        }
+    }
+
+    private func optionsSection(horizontalPadding: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("OPCIONES")
+                .font(.caption)
+                .fontWeight(.semibold)
+                .foregroundColor(.secondary)
+                .padding(.horizontal, horizontalPadding)
+
+            VStack(spacing: 16) {
+                if !readingMode.isVertical {
+                    SettingsToggleRow(
+                        title: "Páginas dobles",
+                        subtitle: "Muestra dos páginas simultáneamente",
+                        iconName: "book.pages.fill",
+                        isEnabled: true,
+                        isActive: doublePaged,
+                        binding: $doublePaged
+                    )
+
+                    if doublePaged {
+                        SettingsToggleRow(
+                            title: "Combinar portada",
+                            subtitle: "Mostrar la primera página junto con otra (cuando está activado) o por separado (cuando está desactivado)",
+                            iconName: "doc.viewfinder",
+                            isEnabled: doublePaged,
+                            isActive: isolateFirstPage,
+                            binding: Binding(
+                                get: { isolateFirstPage },
+                                set: { newValue in
+                                    isolateFirstPage = newValue
+
+                                    DispatchQueue.main.async {
+                                        NotificationCenter.default.post(
+                                            name: Notification.Name("ForceUpdateDoublePages"),
+                                            object: nil,
+                                            userInfo: ["isolateFirstPage": newValue]
+                                        )
+                                    }
+                                }
+                            )
+                        )
+                        .padding(.leading, horizontalPadding > 0 ? 24 : 0)
+                    }
+                }
+
+                SettingsToggleRow(
+                    title: "Fondo claro",
+                    subtitle: "Cambia entre fondos claro y oscuro para una lectura más cómoda",
+                    iconName: useWhiteBackground ? "sun.max.fill" : "moon.fill",
+                    isEnabled: true,
+                    isActive: useWhiteBackground,
+                    binding: $useWhiteBackground
+                )
+
+                SettingsToggleRow(
+                    title: "Vista previa de miniaturas",
+                    subtitle: "Muestra miniaturas de las páginas encima de la barra de progreso",
+                    iconName: "photo.on.rectangle",
+                    isEnabled: true,
+                    isActive: showThumbnails,
+                    binding: $showThumbnails
+                )
+            }
+            .padding(.horizontal, horizontalPadding)
+        }
+    }
+
+    private var appInfoSection: some View {
+        VStack {
+            Text("Chrono Reader")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .padding(.top)
+            Text("v1.0")
+                .font(.caption2)
+                .foregroundColor(.gray)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 12)
+        .padding(.bottom, 24)
     }
 }
 
@@ -2644,7 +2707,7 @@ extension IVPagingController: UICollectionViewDataSourcePrefetching {
             } else if model.doublePaged {
                 // Precarga para modo doble página
                 if indexPath.item < model.doublePages.count {
-                    // Las double pages ya están construidas en el modelo
+                    // Las páginas e imágenes ya están listas en memoria
                 }
             } else {
                 // Precarga para modo página única
