@@ -61,7 +61,29 @@ class ComicViewerModel: ObservableObject {
     
     init(book: CompleteBook) {
         self.book = book
+        applyInitialReaderSettings()
         print("Inicializando ComicViewerModel para: \(book.displayTitle)")
+    }
+
+    private func applyInitialReaderSettings() {
+        let initialSettings = book.comicReaderSettings ?? ComicReaderDefaultsStorage.load()
+        let initialReadingMode = ReadingMode(rawValue: initialSettings.readingModeRawValue) ?? .PAGED_COMIC
+
+        readingMode = initialReadingMode
+        useWhiteBackground = initialSettings.useWhiteBackground
+        showThumbnails = initialSettings.showThumbnails
+        isolateFirstPage = initialSettings.isolateFirstPage
+        doublePaged = initialSettings.doublePaged && !initialReadingMode.isVertical
+    }
+
+    private func currentComicReaderSettings() -> ComicReaderSettings {
+        ComicReaderSettings(
+            readingModeRawValue: readingMode.rawValue,
+            doublePaged: readingMode.isVertical ? false : doublePaged,
+            isolateFirstPage: isolateFirstPage,
+            useWhiteBackground: useWhiteBackground,
+            showThumbnails: showThumbnails
+        )
     }
     
     func loadPages() {
@@ -172,7 +194,9 @@ class ComicViewerModel: ObservableObject {
             localURL: book.metadata.localURL,
             cover: book.getCoverImage(),
             lastReadDate: bookCopy.lastReadDate,
-            lastPageOffsetPCT: readingMode.isVertical ? lastPageOffsetPCT : nil
+            lastPageOffsetPCT: readingMode.isVertical ? lastPageOffsetPCT : nil,
+            comicReaderSettings: currentComicReaderSettings(),
+            isFavorite: book.book.isFavorite
         )
     }
     

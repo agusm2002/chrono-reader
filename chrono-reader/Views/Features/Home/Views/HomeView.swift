@@ -49,6 +49,7 @@ class HomeViewModel: ObservableObject {
     // Configuración de las secciones del Home
     @AppStorage("showRecentSection") var showRecentSection: Bool = true
     @AppStorage("showCollectionsSection") var showCollectionsSection: Bool = true
+    @AppStorage("includeAudiobooksInAllTitles") var includeAudiobooksInAllTitles: Bool = false
     
     // Toast notification state
     @Published var showToast: Bool = false
@@ -255,6 +256,10 @@ class HomeViewModel: ObservableObject {
             guard let date2 = $1.book.lastReadDate else { return true }
             return date1 > date2
         }
+    }
+
+    var audiobooks: [CompleteBook] {
+        filteredBooks.filter { $0.book.type == .m4b }
     }
     
     // Función para procesar un archivo importado
@@ -766,7 +771,9 @@ class HomeViewModel: ObservableObject {
                         progress: book.book.progress,
                         localURL: url,
                         cover: coverImage,
-                        lastReadDate: book.book.lastReadDate
+                        lastReadDate: book.book.lastReadDate,
+                        comicReaderSettings: book.comicReaderSettings,
+                        isFavorite: book.book.isFavorite
                     )
                     books[index] = updatedBook
                     needsSaving = true
@@ -800,7 +807,9 @@ class HomeViewModel: ObservableObject {
                                 progress: book.book.progress,
                                 localURL: book.metadata.localURL,
                                 cover: coverImage,
-                                lastReadDate: book.book.lastReadDate
+                                lastReadDate: book.book.lastReadDate,
+                                comicReaderSettings: book.comicReaderSettings,
+                                isFavorite: book.book.isFavorite
                             )
                             books[index] = updatedBook
                             needsSaving = true
@@ -831,7 +840,9 @@ class HomeViewModel: ObservableObject {
                             progress: book.book.progress,
                             localURL: book.metadata.localURL,
                             cover: coverImage,
-                            lastReadDate: book.book.lastReadDate
+                            lastReadDate: book.book.lastReadDate,
+                            comicReaderSettings: book.comicReaderSettings,
+                            isFavorite: book.book.isFavorite
                         )
                         books[index] = updatedBook
                         needsSaving = true
@@ -869,7 +880,9 @@ class HomeViewModel: ObservableObject {
                             progress: book.book.progress,
                             localURL: book.metadata.localURL,
                             cover: book.getCoverImage(),
-                            lastReadDate: book.book.lastReadDate
+                            lastReadDate: book.book.lastReadDate,
+                            comicReaderSettings: book.comicReaderSettings,
+                            isFavorite: book.book.isFavorite
                         )
                         
                         books[index] = updatedBook
@@ -1119,6 +1132,7 @@ class HomeViewModel: ObservableObject {
                 cover: updatedBook.getCoverImage() ?? existingBook.getCoverImage(),
                 lastReadDate: updatedBook.book.lastReadDate,
                 lastPageOffsetPCT: updatedBook.lastPageOffsetPCT,
+                comicReaderSettings: updatedBook.comicReaderSettings ?? existingBook.comicReaderSettings,
                 isFavorite: existingBook.book.isFavorite // Mantener el estado de favorito
             )
             
@@ -1375,7 +1389,9 @@ class HomeViewModel: ObservableObject {
                             progress: book.book.progress,
                             localURL: book.metadata.localURL,
                             cover: book.getCoverImage(),
-                            lastReadDate: book.book.lastReadDate
+                            lastReadDate: book.book.lastReadDate,
+                            comicReaderSettings: book.comicReaderSettings,
+                            isFavorite: book.book.isFavorite
                         )
                         needsUpdate = true
                     }
@@ -1393,7 +1409,9 @@ class HomeViewModel: ObservableObject {
                                     progress: book.book.progress,
                                     localURL: book.metadata.localURL,
                                     cover: coverImage,
-                                    lastReadDate: book.book.lastReadDate
+                                    lastReadDate: book.book.lastReadDate,
+                                    comicReaderSettings: updatedBook.comicReaderSettings,
+                                    isFavorite: book.book.isFavorite
                                 )
                                 needsUpdate = true
                             }
@@ -1713,6 +1731,11 @@ struct HomeView: View {
                 coleccionesSection
                     .padding(.bottom, 0)
                     .padding(.top, 0)
+
+                // Sección de "Audiolibros"
+                audiolibrosSection
+                    .padding(.top, 0)
+                    .padding(.bottom, 0)
                 
                 // Sección de "Todos los libros"
                 todosLibrosSection
@@ -2055,6 +2078,51 @@ struct HomeView: View {
             }
         }
     }
+
+    private var booksForTodosSection: [CompleteBook] {
+        guard viewModel.selectedCategory == .all,
+              !viewModel.isSearching,
+              !viewModel.includeAudiobooksInAllTitles else {
+            return viewModel.filteredBooks
+        }
+
+        return viewModel.filteredBooks.filter { $0.book.type != .m4b }
+    }
+
+    // Sección "Audiolibros"
+    private var audiolibrosSection: some View {
+        Group {
+            if !viewModel.isSearching && viewModel.selectedCategory == .all && !viewModel.audiobooks.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    HeaderGradientText("Audiolibros", fontSize: 20)
+                        .padding(.horizontal, 24)
+                        .padding(.vertical, 4)
+                        .padding(.top, 4)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) {
+                            ForEach(viewModel.audiobooks) { book in
+                                BookItemView(
+                                    book: book,
+                                    displayMode: .audioSquare,
+                                    onDelete: {
+                                        viewModel.deleteBook(book: book)
+                                    },
+                                    onToggleFavorite: {
+                                        viewModel.toggleFavorite(book: book)
+                                    }
+                                )
+                                .frame(width: 170)
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 6)
+                    }
+                }
+                .padding(.bottom, 2)
+            }
+        }
+    }
     
     // Sección "Todos los libros"
     private var todosLibrosSection: some View {
@@ -2133,7 +2201,7 @@ struct HomeView: View {
 
             // Contenido basado en el estado
             Group {
-                if viewModel.filteredBooks.isEmpty && !viewModel.searchText.isEmpty {
+                if booksForTodosSection.isEmpty && !viewModel.searchText.isEmpty {
                     emptySearchResultsView
                         .transition(.opacity)
                 } else if viewModel.books.isEmpty {
@@ -2141,7 +2209,7 @@ struct HomeView: View {
                         .transition(.opacity)
                 } else {
                     // Vista de libros con transición suave entre layouts
-                    BookGridUpdatedView(books: viewModel.filteredBooks, gridLayout: viewModel.gridLayout, onDelete: { book in
+                    BookGridUpdatedView(books: booksForTodosSection, gridLayout: viewModel.gridLayout, onDelete: { book in
                         viewModel.deleteBook(book: book)
                     }, onToggleFavorite: { book in
                         viewModel.toggleFavorite(book: book)

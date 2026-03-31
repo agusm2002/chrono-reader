@@ -22,7 +22,7 @@ struct BookItemView: View {
     private let titleChangedNotification = NotificationCenter.default.publisher(for: Notification.Name("CustomTitleChanged"))
 
     enum DisplayMode {
-        case grid, list, large
+        case grid, list, large, audioSquare
     }
 
     var body: some View {
@@ -101,7 +101,7 @@ struct BookItemView: View {
                     }
                 }
                 .frame(minWidth: 0, maxWidth: .infinity)
-                .aspectRatio(displayMode == .list ? nil : 0.68, contentMode: .fit)
+                .aspectRatio(displayMode == .list ? nil : (displayMode == .audioSquare ? 1.0 : 0.68), contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
@@ -199,7 +199,7 @@ struct BookItemView: View {
                 .frame(height: 40) // Altura fija para la información
             }
         }
-        .frame(minHeight: displayMode == .list ? nil : (displayMode == .large ? 320 : (showTitle ? 240 : 280)))
+        .frame(minHeight: displayMode == .list ? nil : (displayMode == .large ? 320 : (displayMode == .audioSquare ? (showTitle ? 250 : 220) : (showTitle ? 240 : 280))))
         .padding(.vertical, 4)
         // Comic Viewer
         .fullScreenCover(isPresented: $isShowingComicViewer, onDismiss: {

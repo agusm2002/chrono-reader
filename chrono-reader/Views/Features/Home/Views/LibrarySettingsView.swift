@@ -29,6 +29,16 @@ struct LibrarySettingsView: View {
             }
             
             Section(header: Text("Biblioteca").textCase(.uppercase)) {
+                Toggle(isOn: $viewModel.includeAudiobooksInAllTitles) {
+                    HStack {
+                        Image(systemName: "headphones")
+                            .frame(width: 24, height: 24)
+                            .foregroundColor(.gray)
+
+                        Text("Incluir audiolibros en todos los títulos")
+                    }
+                }
+
                 Button(action: {
                     viewModel.verifyAndRepairBookPaths()
                 }) {

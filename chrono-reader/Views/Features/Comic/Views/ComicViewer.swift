@@ -417,7 +417,9 @@ struct ComicViewer: View {
                     progress: updatedBookCopy.progress,
                     localURL: self.book.metadata.localURL,
                     cover: book.getCoverImage(), // Mantener la portada existente
-                    lastReadDate: updatedBookCopy.lastReadDate // Mantener la fecha de última lectura
+                    lastReadDate: updatedBookCopy.lastReadDate, // Mantener la fecha de última lectura
+                    comicReaderSettings: book.comicReaderSettings,
+                    isFavorite: book.book.isFavorite
                 )
                 
                 // Establecer la página inicial basada en el progreso guardado
@@ -477,7 +479,9 @@ struct ComicViewer: View {
             progress: clampedProgress,
             localURL: book.metadata.localURL,
             cover: book.getCoverImage(),
-            lastReadDate: bookCopy.lastReadDate
+            lastReadDate: bookCopy.lastReadDate,
+            comicReaderSettings: book.comicReaderSettings,
+            isFavorite: book.book.isFavorite
         )
         
         // Actualizar el estado local
@@ -526,7 +530,9 @@ struct ComicViewer: View {
             progress: clampedProgress,
             localURL: book.metadata.localURL,
             cover: book.getCoverImage(),
-            lastReadDate: bookCopy.lastReadDate
+            lastReadDate: bookCopy.lastReadDate,
+            comicReaderSettings: book.comicReaderSettings,
+            isFavorite: book.book.isFavorite
         )
     }
 }

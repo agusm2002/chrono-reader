@@ -46,17 +46,58 @@ struct SettingsView: View {
                         Spacer()
                     }
                 }
-                
-                // Secciones adicionales para tener suficiente contenido para scrollear
+
+                Section(header: Text("OPCIONES PREDETERMINADAS DE CADA LECTOR").textCase(.uppercase)) {
+                    HStack {
+                        Image(systemName: "book.closed")
+                            .frame(width: 24, height: 24)
+                            .foregroundColor(.gray)
+
+                        Text("Lector de libros")
+
+                        Spacer()
+
+                        Text("Proximamente")
+                            .foregroundColor(.gray)
+                            .font(.caption)
+                    }
+
+                    NavigationLink(destination: DefaultComicReaderSettingsView()) {
+                        HStack {
+                            Image(systemName: "book.pages")
+                                .frame(width: 24, height: 24)
+                                .foregroundColor(.gray)
+
+                            Text("Lector de comics")
+
+                            Spacer()
+                        }
+                    }
+
+                    HStack {
+                        Image(systemName: "headphones")
+                            .frame(width: 24, height: 24)
+                            .foregroundColor(.gray)
+
+                        Text("Reproductor de audiolibros")
+
+                        Spacer()
+
+                        Text("Proximamente")
+                            .foregroundColor(.gray)
+                            .font(.caption)
+                    }
+                }
+
                 Section(header: Text("ADICIONAL").textCase(.uppercase)) {
-                    ForEach(1...5, id: \.self) { i in
+                    ForEach(1...2, id: \.self) { i in
                         HStack {
                             Image(systemName: "circle.fill")
                                 .frame(width: 24, height: 24)
                                 .foregroundColor(.gray)
-                            
-                            Text("Opción \(i)")
-                            
+
+                            Text("Opcion \(i)")
+
                             Spacer()
                         }
                     }

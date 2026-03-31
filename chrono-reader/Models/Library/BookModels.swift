@@ -60,11 +60,13 @@ struct CompleteBook: Identifiable, Codable, Equatable {
     let book: Book
     let metadata: BookMetadata
     let lastPageOffsetPCT: Double?
+    let comicReaderSettings: ComicReaderSettings?
 
-    init(id: UUID = UUID(), title: String, author: String, coverImage: String, type: BookType, progress: Double, localURL: URL? = nil, cover: UIImage? = nil, lastReadDate: Date? = nil, lastPageOffsetPCT: Double? = nil, isFavorite: Bool = false) {
+    init(id: UUID = UUID(), title: String, author: String, coverImage: String, type: BookType, progress: Double, localURL: URL? = nil, cover: UIImage? = nil, lastReadDate: Date? = nil, lastPageOffsetPCT: Double? = nil, comicReaderSettings: ComicReaderSettings? = nil, isFavorite: Bool = false) {
         self.id = id
         self.book = Book(title: title, author: author, coverImage: coverImage, type: type, progress: progress, lastReadDate: lastReadDate, isFavorite: isFavorite)
         self.lastPageOffsetPCT = lastPageOffsetPCT
+        self.comicReaderSettings = comicReaderSettings
         
         if let cover = cover {
             // Save the image to a local path and store that path
@@ -127,6 +129,7 @@ struct CompleteBook: Identifiable, Codable, Equatable {
             cover: cover,
             lastReadDate: book.lastReadDate,
             lastPageOffsetPCT: lastPageOffsetPCT,
+            comicReaderSettings: comicReaderSettings,
             isFavorite: book.isFavorite
         )
     }
@@ -151,6 +154,7 @@ struct CompleteBook: Identifiable, Codable, Equatable {
             cover: getCoverImage(), // Mantener la portada existente
             lastReadDate: bookCopy.lastReadDate,
             lastPageOffsetPCT: lastPageOffsetPCT,
+            comicReaderSettings: comicReaderSettings,
             isFavorite: bookCopy.isFavorite
         )
     }
@@ -171,7 +175,25 @@ struct CompleteBook: Identifiable, Codable, Equatable {
             cover: getCoverImage(),
             lastReadDate: bookCopy.lastReadDate,
             lastPageOffsetPCT: lastPageOffsetPCT,
+            comicReaderSettings: comicReaderSettings,
             isFavorite: isFavorite
+        )
+    }
+
+    func withUpdatedComicReaderSettings(_ settings: ComicReaderSettings?) -> CompleteBook {
+        return CompleteBook(
+            id: id,
+            title: book.title,
+            author: book.author,
+            coverImage: book.coverImage,
+            type: book.type,
+            progress: book.progress,
+            localURL: metadata.localURL,
+            cover: getCoverImage(),
+            lastReadDate: book.lastReadDate,
+            lastPageOffsetPCT: lastPageOffsetPCT,
+            comicReaderSettings: settings,
+            isFavorite: book.isFavorite
         )
     }
     
